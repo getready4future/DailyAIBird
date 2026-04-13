@@ -1,0 +1,36 @@
+version: "3.9"
+
+services:
+  backend:
+    build: ./backend
+    ports:
+      - "8000:8000"
+    volumes:
+      - db_data:/app/data
+      - ./backend:/app
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - ADMIN_SECRET=${ADMIN_SECRET:-change-me}
+      - DATABASE_URL=sqlite:///./data/dailyaibird.db
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      target: dev
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    environment:
+      - VITE_API_URL=
+      - VITE_ADMIN_TOKEN=${ADMIN_SECRET:-change-me}
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  db_data:
