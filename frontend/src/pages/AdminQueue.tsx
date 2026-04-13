@@ -145,7 +145,7 @@ export default function AdminQueue() {
             {digestMut.isPending ? 'Generating...' : 'Generate Digest'}
           </button>
           <button
-            onClick={() => scrapeMut.mutate()}
+            onClick={() => scrapeMut.mutate('all')}
             disabled={scrapeMut.isPending}
             className="rounded-lg bg-gray-900 px-4 py-2 text-sm text-white hover:bg-gray-700 disabled:opacity-50 transition"
           >
