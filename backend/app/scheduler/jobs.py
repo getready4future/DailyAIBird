@@ -1,5 +1,5 @@
-import asyncio
 import logging
+from datetime import datetime, timedelta
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -10,9 +10,9 @@ from app.database import SessionLocal
 logger = logging.getLogger(__name__)
 
 
-def _run_scrape():
+async def _run_scrape():
     from app.pipeline.orchestrator import run_scrape_pipeline
-    asyncio.get_event_loop().run_until_complete(run_scrape_pipeline("all"))
+    await run_scrape_pipeline("all")
 
 
 def _run_digest():
@@ -22,7 +22,6 @@ def _run_digest():
 
 def _run_cleanup():
     """Delete articles older than 30 days (keep digests)."""
-    from datetime import datetime, timedelta
     from app.models.article import Article
 
     db = SessionLocal()
