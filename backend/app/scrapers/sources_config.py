@@ -1,6 +1,7 @@
 """
 Central source registry. Each dict defines a news source and how to scrape it.
 scraper_type values: rss | arxiv | hn | reddit | playwright
+is_active: False = passive (won't be scraped)
 """
 
 SOURCES: list[dict] = [
@@ -12,6 +13,7 @@ SOURCES: list[dict] = [
         "feed_url": "https://www.anthropic.com/rss.xml",
         "scraper_type": "rss",
         "category": "blog",
+        "is_active": False,
         "scrape_config": {"fetch_full_text": True},
     },
     {
@@ -21,6 +23,7 @@ SOURCES: list[dict] = [
         "feed_url": "https://deepmind.google/blog/feed/basic",
         "scraper_type": "rss",
         "category": "blog",
+        "is_active": False,
         "scrape_config": {"fetch_full_text": False},
     },
     {
@@ -30,6 +33,7 @@ SOURCES: list[dict] = [
         "feed_url": "https://huggingface.co/blog/feed.xml",
         "scraper_type": "rss",
         "category": "blog",
+        "is_active": False,
         "scrape_config": {"fetch_full_text": False},
     },
     {
@@ -39,6 +43,7 @@ SOURCES: list[dict] = [
         "feed_url": "https://ai.meta.com/blog/feed/",
         "scraper_type": "rss",
         "category": "blog",
+        "is_active": False,
         "scrape_config": {"fetch_full_text": True},
     },
     # ── Tech News (RSS) ───────────────────────────────────────────────────────
@@ -49,6 +54,7 @@ SOURCES: list[dict] = [
         "feed_url": "https://techcrunch.com/category/artificial-intelligence/feed/",
         "scraper_type": "rss",
         "category": "news",
+        "is_active": False,
         "scrape_config": {"fetch_full_text": False},
     },
     {
@@ -58,6 +64,7 @@ SOURCES: list[dict] = [
         "feed_url": "https://www.theverge.com/rss/ai-artificial-intelligence/index.xml",
         "scraper_type": "rss",
         "category": "news",
+        "is_active": False,
         "scrape_config": {"fetch_full_text": False},
     },
     {
@@ -67,6 +74,7 @@ SOURCES: list[dict] = [
         "feed_url": "https://venturebeat.com/category/ai/feed/",
         "scraper_type": "rss",
         "category": "news",
+        "is_active": False,
         "scrape_config": {"fetch_full_text": False},
     },
     {
@@ -76,6 +84,7 @@ SOURCES: list[dict] = [
         "feed_url": "https://www.wired.com/feed/tag/ai/latest/rss",
         "scraper_type": "rss",
         "category": "news",
+        "is_active": False,
         "scrape_config": {"fetch_full_text": False},
     },
     # ── Research (arXiv API) ──────────────────────────────────────────────────
@@ -90,6 +99,7 @@ SOURCES: list[dict] = [
         ),
         "scraper_type": "arxiv",
         "category": "research",
+        "is_active": False,
         "scrape_config": {},
     },
     {
@@ -103,6 +113,7 @@ SOURCES: list[dict] = [
         ),
         "scraper_type": "arxiv",
         "category": "research",
+        "is_active": False,
         "scrape_config": {},
     },
     {
@@ -116,6 +127,7 @@ SOURCES: list[dict] = [
         ),
         "scraper_type": "arxiv",
         "category": "research",
+        "is_active": False,
         "scrape_config": {},
     },
     # ── Social / Community ────────────────────────────────────────────────────
@@ -126,6 +138,7 @@ SOURCES: list[dict] = [
         "feed_url": None,
         "scraper_type": "hn",
         "category": "social",
+        "is_active": True,
         "scrape_config": {"min_score": 50},
     },
     {
@@ -135,6 +148,7 @@ SOURCES: list[dict] = [
         "feed_url": "https://www.reddit.com/r/MachineLearning/top.json?t=day&limit=25",
         "scraper_type": "reddit",
         "category": "social",
+        "is_active": False,
         "scrape_config": {},
     },
     {
@@ -144,6 +158,7 @@ SOURCES: list[dict] = [
         "feed_url": "https://www.reddit.com/r/artificial/top.json?t=day&limit=25",
         "scraper_type": "reddit",
         "category": "social",
+        "is_active": False,
         "scrape_config": {},
     },
     # ── Research (Playwright) ─────────────────────────────────────────────────
@@ -154,6 +169,7 @@ SOURCES: list[dict] = [
         "feed_url": None,
         "scraper_type": "playwright",
         "category": "research",
+        "is_active": False,
         "scrape_config": {
             "wait_selector": ".infinite-container",
             "article_selector": ".paper-card",

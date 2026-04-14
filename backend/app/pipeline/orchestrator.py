@@ -44,7 +44,7 @@ def _seed_sources(db: Session) -> None:
                 scraper_type=cfg["scraper_type"],
                 category=cfg["category"],
                 scrape_config=json.dumps(cfg.get("scrape_config") or {}),
-                is_active=True,
+                is_active=cfg.get("is_active", True),
             )
             db.add(source)
     db.commit()
