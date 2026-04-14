@@ -58,6 +58,11 @@ from app.routers import admin  # noqa: E402
 app.include_router(admin.router, prefix="/api/v1")
 
 
+@app.get("/")
+def root():
+    return {"service": "Daily AI Bird API", "docs": "/docs", "health": "/api/v1/health"}
+
+
 @app.get("/api/v1/health")
 def health():
     return {"status": "ok", "service": "Daily AI Bird"}
