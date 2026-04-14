@@ -1,5 +1,6 @@
 import logging
 import time
+from typing import Generator
 
 from openai import OpenAI, RateLimitError
 
@@ -52,4 +53,36 @@ def call_claude(prompt: str, max_tokens: int = 1024) -> str:
         return response.choices[0].message.content or ""
     except Exception as exc:
         logger.error("AI API error: %s", exc)
+        raise
+
+
+def stream_claude(prompt: str, max_tokens: int = 1024) -> Generator[str, None, None]:
+    """
+    Stream AI response token-by-token. Yields each token as it arrives.
+    """
+    client = get_client()
+    try:
+        stream = client.chat.completions.create(
+            model=settings.AI_MODEL,
+            max_tokens=max_tokens,
+            messages=[{"role": "user", "content": prompt}],
+            stream=True,
+        )
+        for chunk in stream:
+            if chunk.choices[0].delta.content:
+                yield chunk.choices[0].delta.content
+    except RateLimitError:
+        logger.warning("AI rate limit hit (stream) — waiting 30s before retry")
+        time.sleep(30)
+        stream = client.chat.completions.create(
+            model=settings.AI_MODEL,
+            max_tokens=max_tokens,
+            messages=[{"role": "user", "content": prompt}],
+            stream=True,
+        )
+        for chunk in stream:
+            if chunk.choices[0].delta.content:
+                yield chunk.choices[0].delta.content
+    except Exception as exc:
+        logger.error("AI API error (stream): %s", exc)
         raise

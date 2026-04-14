@@ -9,10 +9,21 @@ services:
       - db_data:/app/data
       - ./backend:/app
     environment:
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
-      - ADMIN_SECRET=${ADMIN_SECRET:-change-me}
+      # AI Model Configuration (Gemma 4 31B)
+      - AI_API_KEY=${AI_API_KEY}
+      - AI_MODEL=${AI_MODEL:-google/gemma-4-31b-it:free}
+      - AI_BASE_URL=${AI_BASE_URL:-https://openrouter.ai/api/v1}
+      - AI_SITE_URL=${AI_SITE_URL:-https://dailyaibird.com}
+      - AI_SITE_NAME=${AI_SITE_NAME:-Daily AI Bird}
+      
+      # Database & Security
       - DATABASE_URL=sqlite:///./data/dailyaibird.db
+      - ADMIN_SECRET=${ADMIN_SECRET:-change-me-in-production}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      
+      # Scraping Schedule (6 AM UTC)
+      - SCRAPE_SCHEDULE_HOUR=6
+      - DIGEST_SCHEDULE_HOUR=7
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
     restart: unless-stopped
 
@@ -26,11 +37,12 @@ services:
       - ./frontend:/app
       - /app/node_modules
     environment:
-      - VITE_API_URL=
-      - VITE_ADMIN_TOKEN=${ADMIN_SECRET:-change-me}
+      - VITE_API_URL=http://localhost:8000
+      - VITE_ADMIN_TOKEN=${ADMIN_SECRET:-change-me-in-production}
     depends_on:
       - backend
     restart: unless-stopped
 
 volumes:
   db_data:
+

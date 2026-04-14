@@ -6,15 +6,6 @@ scraper_type values: rss | arxiv | hn | reddit | playwright
 SOURCES: list[dict] = [
     # ── Major AI Blogs (RSS) ──────────────────────────────────────────────────
     {
-        "name": "OpenAI Blog",
-        "slug": "openai-blog",
-        "url": "https://openai.com/blog",
-        "feed_url": "https://openai.com/blog/rss.xml",
-        "scraper_type": "rss",
-        "category": "blog",
-        "scrape_config": {"fetch_full_text": True},
-    },
-    {
         "name": "Anthropic News",
         "slug": "anthropic-news",
         "url": "https://www.anthropic.com/news",
