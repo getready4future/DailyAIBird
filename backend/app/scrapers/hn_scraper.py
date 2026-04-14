@@ -13,7 +13,7 @@ ALGOLIA_URL = (
     "https://hn.algolia.com/api/v1/search_by_date"
     "?query=AI"
     "&tags=story"
-    "&hitsPerPage=30"
+    "&hitsPerPage=5"
 )
 MAX_CONTENT_CHARS = 3000
 
