@@ -165,7 +165,8 @@ def _ai_process_pending(db: Session) -> int:
                 processed += 1
             except Exception as exc:
                 logger.error("AI processing failed for article %d: %s", article.id, exc)
-        time.sleep(1)  # Rate limit buffer between batches
+            time.sleep(3)  # Rate limit buffer between articles
+        time.sleep(5)  # Rate limit buffer between batches
 
     return processed
 
