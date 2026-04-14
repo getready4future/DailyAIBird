@@ -10,8 +10,8 @@ from app.scrapers.base import BaseScraper, ScrapedArticle
 logger = logging.getLogger(__name__)
 
 ALGOLIA_URL = (
-    "https://hn.algolia.com/api/v1/search"
-    "?query=AI+LLM+machine+learning+model+OpenAI+Anthropic+GPT"
+    "https://hn.algolia.com/api/v1/search_by_date"
+    "?query=AI"
     "&tags=story"
     "&hitsPerPage=30"
 )
@@ -20,9 +20,9 @@ MAX_CONTENT_CHARS = 3000
 
 class HnScraper(BaseScraper):
     async def fetch_articles(self) -> list[ScrapedArticle]:
-        min_score = (self.source_config.get("scrape_config") or {}).get("min_score", 50)
-        yesterday_ts = int(time.time()) - 86400
-        url = f"{ALGOLIA_URL}&numericFilters=created_at_i>{yesterday_ts},points>{min_score}"
+        min_score = (self.source_config.get("scrape_config") or {}).get("min_score", 5)
+        week_ago_ts = int(time.time()) - 86400 * 7
+        url = f"{ALGOLIA_URL}&numericFilters=created_at_i>{week_ago_ts},points>{min_score}"
 
         try:
             async with httpx.AsyncClient(timeout=15) as client:
