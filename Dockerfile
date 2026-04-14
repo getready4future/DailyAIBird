@@ -9,14 +9,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy and install Python dependencies
-COPY requirements.txt .
+COPY backend/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Skip Playwright full install (use it without browser binaries for now)
 # Or install separately if needed
 # RUN playwright install chromium
 
-COPY . .
+COPY backend . 
 
 # Create data directory
 RUN mkdir -p data
