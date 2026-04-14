@@ -17,6 +17,18 @@ ALGOLIA_URL = (
 )
 MAX_CONTENT_CHARS = 3000
 
+# Paywalled or bot-blocking domains — skip full content fetch
+BLOCKED_DOMAINS = {
+    "nytimes.com", "wsj.com", "bloomberg.com", "economist.com",
+    "ft.com", "washingtonpost.com", "theatlantic.com", "newyorker.com",
+    "thetimes.co.uk", "telegraph.co.uk", "businessinsider.com",
+    "twitter.com", "x.com",
+}
+
+
+def _is_blocked(url: str) -> bool:
+    return any(domain in url for domain in BLOCKED_DOMAINS)
+
 
 class HnScraper(BaseScraper):
     async def fetch_articles(self) -> list[ScrapedArticle]:
@@ -47,7 +59,7 @@ class HnScraper(BaseScraper):
                     story_url = f"https://news.ycombinator.com/item?id={object_id}"
 
                 raw_content = ""
-                if story_url and "ycombinator.com" not in story_url:
+                if story_url and "ycombinator.com" not in story_url and not _is_blocked(story_url):
                     try:
                         resp = await client.get(story_url)
                         soup = BeautifulSoup(resp.text, "lxml")
