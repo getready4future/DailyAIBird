@@ -1,0 +1,6 @@
+frontend/
+test_*.py
+.git/
+.env.example
+docker-compose.yml
+README.md
