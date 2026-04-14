@@ -3,8 +3,14 @@ from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
     DATABASE_URL: str = "sqlite:///./data/dailyaibird.db"
-    ANTHROPIC_API_KEY: str = ""
     ADMIN_SECRET: str = "change-me-in-production"
+
+    # AI provider (OpenRouter, Groq, Gemini, etc. — all OpenAI-compatible)
+    AI_API_KEY: str = ""
+    AI_MODEL: str = "google/gemma-3-27b-it:free"
+    AI_BASE_URL: str = "https://openrouter.ai/api/v1"
+    AI_SITE_URL: str = "https://dailyaibird.com"   # sent to OpenRouter for rankings
+    AI_SITE_NAME: str = "Daily AI Bird"
 
     SCRAPE_SCHEDULE_HOUR: int = 6
     DIGEST_SCHEDULE_HOUR: int = 7

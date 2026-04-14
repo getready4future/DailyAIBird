@@ -1,43 +1,55 @@
 import logging
+import time
 
-import anthropic
+from openai import OpenAI, RateLimitError
 
 from app.config import settings
 
 logger = logging.getLogger(__name__)
 
-_client: anthropic.Anthropic | None = None
+_client: OpenAI | None = None
 
-MODEL = "claude-sonnet-4-6"
+# Exposed so digest_generator.py can log the model name
+MODEL = settings.AI_MODEL
 
 
-def get_client() -> anthropic.Anthropic:
+def get_client() -> OpenAI:
     global _client
     if _client is None:
-        _client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
+        _client = OpenAI(
+            api_key=settings.AI_API_KEY,
+            base_url=settings.AI_BASE_URL,
+            default_headers={
+                # OpenRouter uses these for leaderboard / abuse tracking
+                "HTTP-Referer": settings.AI_SITE_URL,
+                "X-Title": settings.AI_SITE_NAME,
+            },
+        )
     return _client
 
 
 def call_claude(prompt: str, max_tokens: int = 1024) -> str:
-    """Synchronous Claude call with basic error logging."""
+    """
+    Single AI call. Name kept as call_claude so processor.py / digest_generator.py
+    don't need to change.
+    """
     client = get_client()
     try:
-        message = client.messages.create(
-            model=MODEL,
+        response = client.chat.completions.create(
+            model=settings.AI_MODEL,
             max_tokens=max_tokens,
             messages=[{"role": "user", "content": prompt}],
         )
-        return message.content[0].text
-    except anthropic.RateLimitError:
-        logger.warning("Claude rate limit hit, retrying after delay...")
-        import time
+        return response.choices[0].message.content or ""
+    except RateLimitError:
+        logger.warning("AI rate limit hit — waiting 30s before retry")
         time.sleep(30)
-        message = client.messages.create(
-            model=MODEL,
+        response = client.chat.completions.create(
+            model=settings.AI_MODEL,
             max_tokens=max_tokens,
             messages=[{"role": "user", "content": prompt}],
         )
-        return message.content[0].text
+        return response.choices[0].message.content or ""
     except Exception as exc:
-        logger.error("Claude API error: %s", exc)
+        logger.error("AI API error: %s", exc)
         raise
