@@ -127,15 +127,14 @@ def reject_digest(
 
 @router.post("/trigger-scrape", dependencies=[Depends(_check_token)])
 async def trigger_scrape(
+    background_tasks: BackgroundTasks,
     source_slug: str = "all",
-    background_tasks: BackgroundTasks = BackgroundTasks(),
     db: Session = Depends(get_db),
 ):
     from app.pipeline.orchestrator import run_scrape_pipeline
 
     async def _run():
-        result = await run_scrape_pipeline(source_slug)
-        return result
+        await run_scrape_pipeline(source_slug)
 
     background_tasks.add_task(_run)
     return {"message": f"Scrape triggered for '{source_slug}'"}
