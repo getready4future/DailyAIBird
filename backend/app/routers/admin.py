@@ -3,7 +3,8 @@ Admin / moderation routes — all require X-Admin-Token header.
 """
 from datetime import datetime
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Security
+from fastapi.security import APIKeyHeader
 from sqlalchemy.orm import Session
 
 from app.config import settings
@@ -16,9 +17,11 @@ from app.schemas.digest import DigestOut
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
+_api_key_header = APIKeyHeader(name="X-Admin-Token", auto_error=False)
 
-def _check_token(x_admin_token: str = Header(...)):
-    if x_admin_token != settings.ADMIN_SECRET:
+
+def _check_token(token: str = Security(_api_key_header)):
+    if token != settings.ADMIN_SECRET:
         raise HTTPException(status_code=401, detail="Invalid admin token")
 
 
