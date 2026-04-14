@@ -7,7 +7,7 @@ class Settings(BaseSettings):
 
     # AI provider (OpenRouter, Groq, Gemini, etc. — all OpenAI-compatible)
     AI_API_KEY: str = ""
-    AI_MODEL: str = "google/gemma-3-27b-it:free"
+    AI_MODEL: str = "google/gemma-4-31b-it:free"
     AI_BASE_URL: str = "https://openrouter.ai/api/v1"
     AI_SITE_URL: str = "https://dailyaibird.com"   # sent to OpenRouter for rankings
     AI_SITE_NAME: str = "Daily AI Bird"
