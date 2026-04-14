@@ -139,7 +139,7 @@ SOURCES: list[dict] = [
         "scraper_type": "hn",
         "category": "social",
         "is_active": True,
-        "scrape_config": {"min_score": 50},
+        "scrape_config": {"min_score": 10},
     },
     {
         "name": "Reddit r/MachineLearning",

@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 ALGOLIA_URL = (
     "https://hn.algolia.com/api/v1/search"
-    "?query=artificial+intelligence+machine+learning+LLM"
+    "?query=AI+LLM+machine+learning+model+OpenAI+Anthropic+GPT"
     "&tags=story"
     "&hitsPerPage=30"
 )
