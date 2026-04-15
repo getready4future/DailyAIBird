@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 ALGOLIA_URL = (
     "https://hn.algolia.com/api/v1/search_by_date"
-    "?query=AI"
+    "?query=OpenAI+OR+Anthropic+OR+Google+AI+OR+Claude+OR+ChatGPT"
     "&tags=story"
     "&hitsPerPage=5"
 )

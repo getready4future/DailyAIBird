@@ -54,7 +54,7 @@ SOURCES: list[dict] = [
         "feed_url": "https://techcrunch.com/category/artificial-intelligence/feed/",
         "scraper_type": "rss",
         "category": "news",
-        "is_active": False,
+        "is_active": True,
         "scrape_config": {"fetch_full_text": False},
     },
     {
@@ -64,7 +64,7 @@ SOURCES: list[dict] = [
         "feed_url": "https://www.theverge.com/rss/ai-artificial-intelligence/index.xml",
         "scraper_type": "rss",
         "category": "news",
-        "is_active": False,
+        "is_active": True,
         "scrape_config": {"fetch_full_text": False},
     },
     {
