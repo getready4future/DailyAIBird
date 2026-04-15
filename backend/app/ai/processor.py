@@ -67,7 +67,13 @@ def process_article(article: Article, source_name: str, db: Session) -> None:
     article.impact_score = novelty / 5
     article.topic = result_a.get("topic") or None
     article.sentiment = result_a.get("sentiment") or "neutral"
-    article.tags = json.dumps(result_a.get("tags") or [])
+
+    # Normalize tags — AI sometimes returns a comma-separated string instead of array
+    tags_raw = result_a.get("tags") or []
+    if isinstance(tags_raw, str):
+        tags_raw = [t.strip() for t in tags_raw.split(",") if t.strip()]
+    article.tags = json.dumps(tags_raw)
+
     article.is_scam = False
     article.flags = json.dumps(
         (result_a.get("risks_or_uncertainties") or []) +

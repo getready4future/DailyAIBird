@@ -31,12 +31,21 @@ class ArticleOut(BaseModel):
     def parse_json_list(cls, v: Any) -> list:
         if v is None:
             return []
+        if isinstance(v, list):
+            return v
         if isinstance(v, str):
             try:
-                return json.loads(v)
-            except Exception:
+                parsed = json.loads(v)
+                if isinstance(parsed, list):
+                    return parsed
+                if isinstance(parsed, str):
+                    # Stored as JSON string e.g. '"tag1, tag2"'
+                    return [t.strip() for t in parsed.split(",") if t.strip()]
                 return []
-        return v
+            except Exception:
+                # Plain comma-separated string fallback
+                return [t.strip() for t in v.split(",") if t.strip()]
+        return []
 
     model_config = {"from_attributes": True}
 
