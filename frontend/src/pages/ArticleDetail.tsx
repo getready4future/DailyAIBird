@@ -12,11 +12,22 @@ export default function ArticleDetail() {
   if (isLoading) return <div className="flex justify-center py-20"><Spinner size="lg" /></div>
   if (error || !article) return <p className="py-10 text-center text-red-500">Article not found.</p>
 
+  const paragraphs = article.summary?.split('\n').filter(Boolean) ?? []
+
   return (
     <div className="mx-auto max-w-2xl">
       <Link to="/" className="mb-6 inline-flex items-center gap-1 text-sm text-brand-600 hover:underline">
         ← Back to feed
       </Link>
+
+      {article.image_url && (
+        <img
+          src={article.image_url}
+          alt=""
+          className="mb-6 w-full rounded-xl object-cover max-h-72"
+          onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none' }}
+        />
+      )}
 
       <div className="mb-2 flex flex-wrap items-center gap-2 text-xs text-gray-500">
         <span className="font-medium text-gray-700">{article.source.name}</span>
@@ -42,17 +53,16 @@ export default function ArticleDetail() {
         )}
       </div>
 
-      {article.summary && (
-        <div className="mb-6 rounded-xl bg-brand-50 border border-brand-100 p-5">
-          <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-brand-700">
-            AI Summary
-          </h2>
-          <p className="text-gray-800 leading-relaxed">{article.summary}</p>
+      {paragraphs.length > 0 && (
+        <div className="prose prose-gray max-w-none mb-6">
+          {paragraphs.map((p, i) => (
+            <p key={i} className="mb-4 text-gray-800 leading-relaxed">{p}</p>
+          ))}
         </div>
       )}
 
       {article.tags.length > 0 && (
-        <div className="mb-6 flex flex-wrap gap-2">
+        <div className="mt-6 flex flex-wrap gap-2">
           {article.tags.map((tag) => (
             <span key={tag} className="rounded-full bg-gray-100 px-2.5 py-0.5 text-xs text-gray-600">
               #{tag}
@@ -60,19 +70,6 @@ export default function ArticleDetail() {
           ))}
         </div>
       )}
-
-      <a
-        href={article.url}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="inline-flex items-center gap-2 rounded-lg bg-brand-600 px-5 py-3 font-semibold text-white hover:bg-brand-700 transition"
-      >
-        Read Original Article
-        <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-            d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-        </svg>
-      </a>
     </div>
   )
 }

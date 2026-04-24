@@ -96,7 +96,7 @@ def process_article(article: Article, source_name: str, db: Session) -> None:
 
     why_it_matters = result_a.get("why_it_matters_for_users", "")
 
-    # ── Call B: Consumer Summary ──────────────────────────────────────────────
+    # ── Call B: Full Article Rewrite ──────────────────────────────────────────
     prompt_b = ENRICH_PROMPT.format(
         title=article.title,
         source_name=source_name,
@@ -104,13 +104,12 @@ def process_article(article: Article, source_name: str, db: Session) -> None:
         why_it_matters=why_it_matters,
     )
     try:
-        raw_b = call_claude(prompt_b, max_tokens=400)
+        raw_b = call_claude(prompt_b, max_tokens=1200)
         result_b = _parse_json(raw_b)
-        article.summary = result_b.get("summary") or why_it_matters
+        article.summary = result_b.get("body") or result_b.get("lead") or why_it_matters
         article.impact_score = float(result_b.get("impact_score", article.impact_score))
     except Exception as exc:
         logger.error("Call B failed for article %s: %s", article.id, exc)
-        # Use Call A's why_it_matters as fallback summary
         article.summary = why_it_matters
 
     article.status = "pending_human"

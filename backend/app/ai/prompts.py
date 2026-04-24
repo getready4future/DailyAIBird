@@ -98,20 +98,34 @@ Return valid JSON only (no markdown, no explanation):
 }}
 """
 
-# ── Call B: Consumer Summary ──────────────────────────────────────────────────
+# ── Call B: Full Article Rewrite ─────────────────────────────────────────────
 ENRICH_PROMPT = """\
-You are writing a short summary for everyday users of "Daily AI Bird".
+You are a writer for "Daily AI Bird", a news site for everyday people curious about AI.
 
-The article has already been verified. Your job is to write a clear, plain-language summary.
+An article has been verified and is ready to be rewritten. Your job is to rewrite it as a
+complete, self-contained news article that readers can fully understand WITHOUT visiting the
+original source. Write for a non-expert audience — no jargon, plain language throughout.
 
-Title: {title}
+Original title: {title}
 Source: {source_name}
-Content: {content}
+Full content: {content}
 Why it matters: {why_it_matters}
+
+Writing rules:
+- Write 300–500 words
+- Start with a strong lead sentence that captures the core news
+- Cover: what happened, who is involved, why it matters to everyday users
+- Use concrete facts and numbers from the original — no vague claims
+- Do NOT use phrases like "significant development", "marks a milestone", "game-changer"
+- Do NOT mention the original source or say "according to TechCrunch / The Verge"
+- Do NOT include a "Read more" or any external links
+- Write in third person, present-tense where appropriate
+- Paragraphs should be 2-4 sentences each
 
 Respond with ONLY a JSON object (no markdown, no explanation):
 {{
-  "summary": "<2-3 sentences in plain language: what happened, why an everyday person should care — no jargon>",
+  "body": "<full rewritten article — plain text, no markdown, newlines between paragraphs>",
+  "lead": "<one sentence that captures the core news — used as the card preview>",
   "impact_score": <float 0.0-1.0>
 }}
 
@@ -120,8 +134,6 @@ Impact scoring:
 - 0.7–0.9: Significant but not immediate for most users
 - 0.5–0.7: Interesting but low immediate impact
 - <0.5: Niche or developer-only impact
-
-Keep the summary concrete. Never use phrases like "significant development" or "marks a milestone".
 """
 
 # ── Digest Generation ─────────────────────────────────────────────────────────

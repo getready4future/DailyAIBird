@@ -38,9 +38,9 @@ export default function ArticleCard({ article }: { article: Article }) {
         </div>
 
         <h2 className="mb-2 text-base font-semibold leading-snug text-gray-900 line-clamp-2">
-          <a href={article.url} target="_blank" rel="noopener noreferrer" className="hover:text-brand-600">
+          <Link to={`/articles/${article.id}`} className="hover:text-brand-600">
             {article.title}
-          </a>
+          </Link>
         </h2>
 
         {article.summary && (
@@ -54,7 +54,7 @@ export default function ArticleCard({ article }: { article: Article }) {
             to={`/articles/${article.id}`}
             className="ml-auto text-xs text-brand-600 hover:underline"
           >
-            Details →
+            Oku →
           </Link>
         </div>
       </div>

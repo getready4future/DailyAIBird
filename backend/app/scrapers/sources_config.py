@@ -55,7 +55,7 @@ SOURCES: list[dict] = [
         "scraper_type": "rss",
         "category": "news",
         "is_active": True,
-        "scrape_config": {"fetch_full_text": False},
+        "scrape_config": {"fetch_full_text": True},
     },
     {
         "name": "The Verge AI",
@@ -65,7 +65,7 @@ SOURCES: list[dict] = [
         "scraper_type": "rss",
         "category": "news",
         "is_active": True,
-        "scrape_config": {"fetch_full_text": False},
+        "scrape_config": {"fetch_full_text": True},
     },
     {
         "name": "VentureBeat AI",
