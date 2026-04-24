@@ -146,12 +146,14 @@ app = FastAPI(
 )
 
 _cors_origins = [o.strip() for o in settings.CORS_ORIGINS.split(",") if o.strip()]
+_allow_all = "*" in _cors_origins
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=_cors_origins,
-    allow_credentials=True,
+    allow_origins=["*"] if _allow_all else _cors_origins,
+    allow_credentials=False if _allow_all else True,
     allow_methods=["*"],
-    allow_headers=["*"],
+    allow_headers=["Content-Type", "Authorization", "X-Admin-Token", "X-Requested-With"],
+    expose_headers=["*"],
 )
 
 # Public routes
