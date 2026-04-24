@@ -40,6 +40,54 @@ def _seed_admin_user() -> None:
         db.close()
 
 
+DEFAULT_SOURCE_SLUGS = [
+    # AI Lab blogs
+    "openai-news", "anthropic-news", "deepmind-blog", "google-ai-blog",
+    "meta-ai-blog", "microsoft-ai-blog", "huggingface-blog",
+    # Tech news
+    "techcrunch-ai", "the-verge-ai", "venturebeat-ai", "wired-ai",
+    "mit-tech-review-ai", "ars-technica-ai",
+    # Community
+    "hackernews-ai", "reddit-ml", "reddit-artificial",
+    # Research
+    "arxiv-cs-ai", "arxiv-cs-lg",
+]
+
+
+def _seed_sources() -> None:
+    """Populate sources table with defaults from catalog if empty."""
+    from app.database import SessionLocal
+    from app.models.source import Source
+    from app.scrapers.source_catalog import CATALOG
+    from datetime import datetime
+
+    db = SessionLocal()
+    try:
+        if db.query(Source).count() > 0:
+            return
+        catalog_map = {s["slug"]: s for s in CATALOG}
+        added = 0
+        for slug in DEFAULT_SOURCE_SLUGS:
+            entry = catalog_map.get(slug)
+            if not entry:
+                continue
+            db.add(Source(
+                name=entry["name"],
+                slug=entry["slug"],
+                url=entry["url"],
+                feed_url=entry.get("feed_url"),
+                scraper_type=entry["scraper_type"],
+                category=entry["category"],
+                is_active=True,
+                created_at=datetime.utcnow(),
+            ))
+            added += 1
+        db.commit()
+        logger.info("Seeded %d default sources", added)
+    finally:
+        db.close()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Create tables if they don't exist yet (idempotent, Alembic handles migrations)
@@ -47,6 +95,7 @@ async def lifespan(app: FastAPI):
     logger.info("Database tables ready")
 
     _seed_admin_user()
+    _seed_sources()
 
     # Start scheduler
     from app.scheduler.jobs import create_scheduler
