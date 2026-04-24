@@ -60,7 +60,7 @@ def approve_article(
     article = db.query(Article).filter(Article.id == article_id).first()
     if not article:
         raise HTTPException(status_code=404, detail="Article not found")
-    if article.status not in ("pending_human", "rejected"):
+    if article.status not in ("pending_human", "rejected", "rejected_ai"):
         raise HTTPException(status_code=400, detail=f"Cannot approve article with status '{article.status}'")
 
     article.status = "published"

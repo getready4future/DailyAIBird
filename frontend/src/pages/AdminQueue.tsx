@@ -270,12 +270,15 @@ function ArticleReviewCard({ article, onApprove, onReject }: {
     ? <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-medium text-emerald-700">✓ Yayınlandı</span>
     : article.status === 'rejected'
     ? <span className="rounded-full bg-red-100 px-2.5 py-0.5 text-xs font-medium text-red-700">✗ Reddedildi</span>
+    : article.status === 'rejected_ai'
+    ? <span className="rounded-full bg-orange-100 px-2.5 py-0.5 text-xs font-medium text-orange-700">AI Reddetti</span>
     : null
 
   return (
     <div className={`rounded-xl border bg-white p-5 shadow-sm ${
-      article.status === 'published' ? 'border-emerald-200'
-      : article.status === 'rejected' ? 'border-red-200'
+      article.status === 'published'   ? 'border-emerald-200'
+      : article.status === 'rejected'    ? 'border-red-200'
+      : article.status === 'rejected_ai' ? 'border-orange-200'
       : 'border-gray-200'
     }`}>
       <div className="mb-2 flex flex-wrap items-center gap-2 text-xs text-gray-500">
@@ -346,7 +349,7 @@ function ArticleReviewCard({ article, onApprove, onReject }: {
               onClick={() => onApprove(article.id)}
               className="flex-1 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 transition"
             >
-              {article.status === 'rejected' ? 'Geri Al & Yayınla' : 'Onayla & Yayınla'}
+              {article.status === 'rejected' || article.status === 'rejected_ai' ? 'Override & Yayınla' : 'Onayla & Yayınla'}
             </button>
           )}
           {onReject && (
@@ -363,12 +366,13 @@ function ArticleReviewCard({ article, onApprove, onReject }: {
   )
 }
 
-type TabStatus = 'pending_human' | 'published' | 'rejected'
+type TabStatus = 'pending_human' | 'published' | 'rejected' | 'rejected_ai'
 
 const TABS: { key: TabStatus; label: string }[] = [
   { key: 'pending_human', label: 'Bekliyor' },
   { key: 'published',     label: 'Yayınlandı' },
   { key: 'rejected',      label: 'Reddedildi' },
+  { key: 'rejected_ai',   label: 'AI Reddetti' },
 ]
 
 export default function AdminQueue() {
@@ -408,9 +412,15 @@ export default function AdminQueue() {
     <div>
       {showPanel && (
         <>
-          <div className="fixed inset-0 z-40 bg-black/40" onClick={() => setShowPanel(false)} />
+          <div className="fixed inset-0 z-40 bg-black/40" onClick={() => {
+            setShowPanel(false)
+            qc.invalidateQueries({ queryKey: ['admin-queue'] })
+          }} />
           <ScrapePanel
-            onClose={() => setShowPanel(false)}
+            onClose={() => {
+              setShowPanel(false)
+              qc.invalidateQueries({ queryKey: ['admin-queue'] })
+            }}
             onDone={() => qc.invalidateQueries({ queryKey: ['admin-queue'] })}
           />
         </>
@@ -463,8 +473,9 @@ export default function AdminQueue() {
         <div className="flex justify-center py-20"><Spinner size="lg" /></div>
       ) : articles.length === 0 ? (
         <EmptyState message={
-          tab === 'pending_human' ? 'Queue is empty — no articles pending review.'
-          : tab === 'published' ? 'Henüz yayınlanmış makale yok.'
+          tab === 'pending_human' ? 'Onay bekleyen makale yok. Run Scrape\'i çalıştırın.'
+          : tab === 'published'   ? 'Henüz yayınlanmış makale yok.'
+          : tab === 'rejected_ai' ? 'AI\'nın reddettiği makale yok.'
           : 'Henüz reddedilmiş makale yok.'
         } />
       ) : (
@@ -473,7 +484,11 @@ export default function AdminQueue() {
             <ArticleReviewCard
               key={a.id}
               article={a}
-              onApprove={tab === 'pending_human' || tab === 'rejected' ? (id) => approveMut.mutate(id) : undefined}
+              onApprove={
+                tab === 'pending_human' || tab === 'rejected' || tab === 'rejected_ai'
+                  ? (id) => approveMut.mutate(id)
+                  : undefined
+              }
               onReject={tab === 'pending_human' ? (id) => rejectMut.mutate(id) : undefined}
             />
           ))}
