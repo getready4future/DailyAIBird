@@ -287,13 +287,21 @@ function ArticleReviewCard({ article, onApprove, onReject }: {
 
   return (
     <div className={`rounded-xl border border-gray-100 bg-white shadow-sm border-l-4 ${cfg.border} overflow-hidden hover:shadow-md transition-shadow`}>
-      {/* Image if available */}
-      {article.image_url && (
-        <div className="overflow-hidden h-36">
+      {/* Image — always show something */}
+      <div className="overflow-hidden h-36">
+        {article.image_url ? (
           <img src={article.image_url} alt="" className="h-full w-full object-cover"
-            onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none' }} />
+            onError={(e) => {
+              const img = e.currentTarget as HTMLImageElement
+              img.style.display = 'none'
+              img.nextElementSibling?.classList.remove('hidden')
+            }}
+          />
+        ) : null}
+        <div className={`h-full w-full bg-gradient-to-br from-gray-700 to-gray-900 flex items-center justify-center ${article.image_url ? 'hidden' : ''}`}>
+          <span className="text-2xl opacity-20">🐦</span>
         </div>
-      )}
+      </div>
 
       <div className="p-4">
         {/* Top meta */}

@@ -5,6 +5,26 @@ import TopicBadge from '../ui/TopicBadge'
 
 type Variant = 'hero' | 'large' | 'default'
 
+const TOPIC_GRADIENTS: Record<string, string> = {
+  research:    'from-violet-600 to-indigo-700',
+  products:    'from-blue-600 to-cyan-700',
+  policy:      'from-slate-600 to-gray-700',
+  business:    'from-emerald-600 to-teal-700',
+  safety:      'from-amber-600 to-orange-700',
+  open_source: 'from-green-600 to-emerald-700',
+  tools:       'from-sky-600 to-blue-700',
+  agents:      'from-purple-600 to-violet-700',
+}
+
+function TopicGradient({ topic, height = 'h-40' }: { topic?: string | null; height?: string }) {
+  const grad = (topic && TOPIC_GRADIENTS[topic]) || 'from-brand-600 to-brand-900'
+  return (
+    <div className={`${height} w-full bg-gradient-to-br ${grad} flex items-center justify-center`}>
+      <span className="text-3xl opacity-30">🐦</span>
+    </div>
+  )
+}
+
 function TimeAgo({ date }: { date: string | null }) {
   if (!date) return null
   return <span>{formatDistanceToNow(new Date(date), { addSuffix: true })}</span>
@@ -46,9 +66,10 @@ function HeroCard({ article }: { article: Article }) {
           loading="lazy"
           onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none' }}
         />
-      ) : (
-        <div className="absolute inset-0 bg-gradient-to-br from-brand-800 to-gray-950" />
-      )}
+      ) : null}
+      <div className={`absolute inset-0 bg-gradient-to-br ${
+        (article.topic && TOPIC_GRADIENTS[article.topic]) || 'from-brand-700 to-gray-950'
+      } ${article.image_url ? 'opacity-0' : 'opacity-100'}`} />
 
       {/* deep gradient overlay */}
       <div className="absolute inset-0 bg-gradient-to-t from-black/95 via-black/40 to-transparent" />
@@ -100,11 +121,16 @@ function LargeCard({ article }: { article: Article }) {
             alt=""
             className="h-52 w-full object-cover transition duration-500 group-hover:scale-105"
             loading="lazy"
-            onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none' }}
+            onError={(e) => {
+              const img = e.currentTarget as HTMLImageElement
+              img.style.display = 'none'
+              img.nextElementSibling?.classList.remove('hidden')
+            }}
           />
-        ) : (
-          <div className="h-52 w-full bg-gradient-to-br from-gray-100 to-gray-200" />
-        )}
+        ) : null}
+        <div className={`${article.image_url ? 'hidden' : ''}`}>
+          <TopicGradient topic={article.topic} height="h-52" />
+        </div>
         {article.topic && (
           <div className="absolute bottom-3 left-3">
             <TopicBadge topic={article.topic} />
@@ -139,17 +165,24 @@ function DefaultCard({ article }: { article: Article }) {
       to={`/articles/${article.id}`}
       className="group flex flex-col overflow-hidden rounded-xl border border-gray-100 bg-white shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-200"
     >
-      {article.image_url && (
-        <div className="overflow-hidden">
+      <div className="overflow-hidden">
+        {article.image_url ? (
           <img
             src={article.image_url}
             alt=""
             className="h-40 w-full object-cover transition duration-500 group-hover:scale-105"
             loading="lazy"
-            onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none' }}
+            onError={(e) => {
+              const img = e.currentTarget as HTMLImageElement
+              img.style.display = 'none'
+              img.nextElementSibling?.classList.remove('hidden')
+            }}
           />
+        ) : null}
+        <div className={`${article.image_url ? 'hidden' : ''}`}>
+          <TopicGradient topic={article.topic} height="h-40" />
         </div>
-      )}
+      </div>
       <div className="flex flex-1 flex-col p-4">
         <div className="mb-1.5 flex items-center gap-1.5 text-xs text-gray-400">
           <span className="font-medium text-gray-600">{article.source.name}</span>
