@@ -15,7 +15,6 @@ logger = logging.getLogger(__name__)
 NVIDIA_URL = "https://integrate.api.nvidia.com/v1/chat/completions"
 
 DEFAULT_CHAIN = [
-    "deepseek-ai/deepseek-v3.2",
     "meta/llama-3.3-70b-instruct",
     "moonshotai/kimi-k2.5",
     "mistralai/mistral-medium-3-instruct",
