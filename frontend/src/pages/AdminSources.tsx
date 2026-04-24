@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { formatDistanceToNow } from 'date-fns'
-import { fetchAdminSources, updateSource, triggerScrape, testSource, type AdminSource, type SourceTestArticle } from '../api/admin'
+import { fetchAdminSources, updateSource, triggerScrape, testSource, importCatalogSource, type AdminSource, type SourceTestArticle } from '../api/admin'
 import Spinner from '../components/ui/Spinner'
 
 // ── Test result panel ─────────────────────────────────────────────────────────
@@ -271,11 +271,138 @@ function SourceCard({ source, onSave, onScrape }: {
   )
 }
 
+// ── Add source form ───────────────────────────────────────────────────────────
+
+const SCRAPER_TYPES = ['rss', 'hn', 'reddit', 'arxiv', 'playwright', 'twitter']
+const CATEGORIES    = ['news', 'blog', 'newsletter', 'research', 'policy', 'social']
+
+function AddSourceForm({ onClose }: { onClose: () => void }) {
+  const qc = useQueryClient()
+  const [name, setName]               = useState('')
+  const [url, setUrl]                 = useState('')
+  const [feedUrl, setFeedUrl]         = useState('')
+  const [scraperType, setScraperType] = useState('rss')
+  const [category, setCategory]       = useState('news')
+  const [maxArticles, setMaxArticles] = useState('')
+  const [contextPrompt, setContextPrompt] = useState('')
+  const [error, setError]             = useState('')
+
+  // Auto-generate slug from name
+  const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 50)
+
+  const createMut = useMutation({
+    mutationFn: () => importCatalogSource({
+      name, slug, url,
+      feed_url: feedUrl || null,
+      scraper_type: scraperType,
+      category,
+      scrape_config: maxArticles ? { max_articles: parseInt(maxArticles) } : {},
+    }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['admin-sources'] })
+      onClose()
+    },
+    onError: (err: any) => setError(err?.response?.data?.detail || 'Failed to add source.'),
+  })
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    if (!name || !url) return
+    setError('')
+    createMut.mutate()
+  }
+
+  const inputCls = 'w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-white placeholder-gray-600 focus:border-brand-500 focus:outline-none'
+  const labelCls = 'mb-1 block text-[10px] font-bold tracking-widest text-gray-500 uppercase'
+
+  return (
+    <form onSubmit={handleSubmit} className="mb-6 rounded-2xl border border-brand-700/30 bg-gray-900 p-6">
+      <p className="mb-5 text-[10px] font-bold tracking-widest text-brand-500 uppercase">New Source</p>
+
+      <div className="grid gap-4 sm:grid-cols-2">
+        <div className="sm:col-span-2">
+          <label className={labelCls}>Source Name *</label>
+          <input value={name} onChange={(e) => setName(e.target.value)}
+            placeholder="e.g. OpenAI Blog" required className={inputCls} />
+          {slug && <p className="mt-1 text-[10px] text-gray-600">slug: {slug}</p>}
+        </div>
+
+        <div className="sm:col-span-2">
+          <label className={labelCls}>Website URL *</label>
+          <input type="url" value={url} onChange={(e) => setUrl(e.target.value)}
+            placeholder="https://example.com" required className={inputCls} />
+        </div>
+
+        <div className="sm:col-span-2">
+          <label className={labelCls}>Feed URL <span className="normal-case font-normal text-gray-600">(RSS/Atom — leave blank for non-RSS)</span></label>
+          <input type="url" value={feedUrl} onChange={(e) => setFeedUrl(e.target.value)}
+            placeholder="https://example.com/feed.xml" className={inputCls} />
+        </div>
+
+        <div>
+          <label className={labelCls}>Scraper Type</label>
+          <select value={scraperType} onChange={(e) => setScraperType(e.target.value)}
+            className={inputCls}>
+            {SCRAPER_TYPES.map((t) => (
+              <option key={t} value={t}>{t}</option>
+            ))}
+          </select>
+        </div>
+
+        <div>
+          <label className={labelCls}>Category</label>
+          <select value={category} onChange={(e) => setCategory(e.target.value)}
+            className={inputCls}>
+            {CATEGORIES.map((c) => (
+              <option key={c} value={c}>{c}</option>
+            ))}
+          </select>
+        </div>
+
+        <div>
+          <label className={labelCls}>Max Articles <span className="normal-case font-normal text-gray-600">(optional)</span></label>
+          <input type="number" min="1" max="100" value={maxArticles}
+            onChange={(e) => setMaxArticles(e.target.value)}
+            placeholder="Global default" className={inputCls} />
+        </div>
+
+        <div>
+          <label className={labelCls}>Context Prompt <span className="normal-case font-normal text-gray-600">(optional)</span></label>
+          <input value={contextPrompt} onChange={(e) => setContextPrompt(e.target.value)}
+            placeholder="Extra rewriting instructions…" className={inputCls} />
+        </div>
+      </div>
+
+      {scraperType === 'twitter' && (
+        <div className="mt-3 rounded-lg border border-amber-800/40 bg-amber-950/20 px-3 py-2.5 text-xs text-amber-400">
+          Twitter/X scraper requires <code className="font-mono">TWITTER_BEARER_TOKEN</code> in your .env file.
+        </div>
+      )}
+
+      {error && (
+        <p className="mt-3 rounded-lg border border-red-800/50 bg-red-950/30 px-3 py-2 text-xs text-red-400">{error}</p>
+      )}
+
+      <div className="mt-5 flex gap-3">
+        <button type="submit" disabled={createMut.isPending || !name || !url}
+          className="rounded-lg bg-brand-600 px-5 py-2 text-xs font-bold text-white hover:bg-brand-500 disabled:opacity-50 transition">
+          {createMut.isPending ? 'Adding…' : '+ Add Source'}
+        </button>
+        <button type="button" onClick={onClose}
+          className="rounded-lg border border-gray-700 px-5 py-2 text-xs font-semibold text-gray-400 hover:text-white transition">
+          Cancel
+        </button>
+      </div>
+    </form>
+  )
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function AdminSources() {
   const qc = useQueryClient()
   const [scraping, setScraping] = useState<string | null>(null)
+  const [showAdd, setShowAdd]   = useState(false)
 
   const { data: sources = [], isLoading } = useQuery({
     queryKey: ['admin-sources'],
@@ -300,18 +427,30 @@ export default function AdminSources() {
 
   return (
     <div>
-      <div className="mb-8 rounded-2xl bg-gray-900 border border-gray-800 px-6 py-5">
-        <div className="flex items-center justify-between">
+      <div className="mb-6 rounded-2xl bg-gray-900 border border-gray-800 px-6 py-5">
+        <div className="flex items-center justify-between gap-4">
           <div>
             <p className="text-[10px] font-bold tracking-widest text-gray-500 uppercase mb-1">Sources</p>
             <h1 className="text-xl font-bold text-white">Source Management</h1>
           </div>
-          <div className="text-right">
-            <p className="text-2xl font-bold text-white">{activeCount}<span className="text-gray-600">/{sources.length}</span></p>
-            <p className="text-[10px] text-gray-500 uppercase tracking-widest">Active</p>
+          <div className="flex items-center gap-4">
+            <div className="text-right">
+              <p className="text-2xl font-bold text-white">{activeCount}<span className="text-gray-600">/{sources.length}</span></p>
+              <p className="text-[10px] text-gray-500 uppercase tracking-widest">Active</p>
+            </div>
+            <button
+              onClick={() => setShowAdd((v) => !v)}
+              className={`rounded-lg px-4 py-2 text-xs font-bold transition ${
+                showAdd ? 'bg-gray-700 text-white' : 'bg-brand-600 text-white hover:bg-brand-500'
+              }`}
+            >
+              {showAdd ? '✕ Cancel' : '+ Add Source'}
+            </button>
           </div>
         </div>
       </div>
+
+      {showAdd && <AddSourceForm onClose={() => setShowAdd(false)} />}
 
       {isLoading ? (
         <div className="flex justify-center py-20"><Spinner size="lg" /></div>
