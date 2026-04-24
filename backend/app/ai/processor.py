@@ -140,6 +140,8 @@ def process_article(article: Article, source_name: str, db: Session) -> None:
     try:
         raw_b = call_claude(prompt_b, max_tokens=1200)
         result_b = _parse_json(raw_b)
+        if result_b.get("headline"):
+            article.title = result_b["headline"]
         article.summary = result_b.get("body") or result_b.get("lead") or why_it_matters
         article.impact_score = float(result_b.get("impact_score", article.impact_score))
     except Exception as exc:
