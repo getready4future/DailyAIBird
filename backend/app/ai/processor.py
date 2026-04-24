@@ -1,7 +1,7 @@
 """
 Two-pass AI processing per article:
-  Call A — quality/verification (gates Call B)
-  Call B — full article rewrite
+  Call A — quality gate (fast, ~350 tokens)
+  Call B — full article rewrite (unchanged, 350-550 words)
 """
 import json
 import logging
@@ -16,7 +16,7 @@ from app.models.article import Article
 logger = logging.getLogger(__name__)
 
 MAX_CONTENT_CHARS = 3000
-CONFIDENCE_REJECT_THRESHOLD = 2  # out of 5
+CONFIDENCE_REJECT_THRESHOLD = 3  # out of 5 — raised since prompt now instructs same threshold
 
 
 def _truncate(text: str | None) -> str:
@@ -40,7 +40,7 @@ def process_article(article: Article, source_name: str, db: Session) -> None:
 
     content = _truncate(article.raw_content)
 
-    # ── Step 1: Announce we're analyzing ─────────────────────────────────────
+    # ── Announce analysis ─────────────────────────────────────────────────────
     progress.emit(
         article.title,
         kind="analyzing",
@@ -49,55 +49,42 @@ def process_article(article: Article, source_name: str, db: Session) -> None:
         image_url=article.image_url,
     )
 
-    # ── Call A: Quality / Verification ───────────────────────────────────────
+    # ── Call A: Quality Gate ──────────────────────────────────────────────────
     prompt_a = QUALITY_CHECK_PROMPT.format(
         title=article.title,
         source_name=source_name,
         content=content,
     )
     try:
-        raw_a = call_claude(prompt_a, max_tokens=700)
+        raw_a = call_claude(prompt_a, max_tokens=400)
         result_a = _parse_json(raw_a)
     except Exception as exc:
         logger.error("Call A failed for article %s: %s", article.id, exc)
-        progress.emit(
-            article.title,
-            kind="error",
-            url=article.url,
-            detail=f"Call A başarısız: {exc}",
-        )
+        progress.emit(article.title, kind="error", url=article.url, detail=f"Call A failed: {exc}")
         article.status = "pending_human"
         article.ai_processed = True
         article.ai_processed_at = datetime.utcnow()
         db.commit()
         return
 
-    # Map scores (0-5) to normalized fields (0-1)
-    src_q = float(result_a.get("source_quality_score", 0))
-    cons_r = float(result_a.get("consumer_relevance_score", 0))
-    novelty = float(result_a.get("novelty_score", 0))
+    src_q      = float(result_a.get("source_quality_score", 0))
+    cons_r     = float(result_a.get("consumer_relevance_score", 0))
     confidence = float(result_a.get("confidence_score", 0))
 
-    article.quality_score = (src_q + confidence) / 10
-    article.relevance_score = cons_r / 5
-    article.impact_score = novelty / 5
-    article.topic = result_a.get("topic") or None
-    article.sentiment = result_a.get("sentiment") or "neutral"
+    article.quality_score    = (src_q + confidence) / 10
+    article.relevance_score  = cons_r / 5
+    article.topic            = result_a.get("topic") or None
+    article.sentiment        = result_a.get("sentiment") or "neutral"
+    article.flags            = json.dumps([])
 
     tags_raw = result_a.get("tags") or []
     if isinstance(tags_raw, str):
         tags_raw = [t.strip() for t in tags_raw.split(",") if t.strip()]
     article.tags = json.dumps(tags_raw)
 
-    article.is_scam = False
-    article.flags = json.dumps(
-        (result_a.get("risks_or_uncertainties") or []) +
-        (result_a.get("editor_notes") or [])
-    )
-
     decision = result_a.get("decision", "skip")
 
-    # ── Step 2: Emit Call A scores ────────────────────────────────────────────
+    # ── Emit Call A scores ────────────────────────────────────────────────────
     progress.emit(
         article.title,
         kind="scored",
@@ -110,7 +97,7 @@ def process_article(article: Article, source_name: str, db: Session) -> None:
         core_claim=result_a.get("core_claim", ""),
     )
 
-    # ── Reject if AI says skip or confidence too low ──────────────────────────
+    # ── Reject if skip or confidence too low ──────────────────────────────────
     if decision == "skip" or confidence < CONFIDENCE_REJECT_THRESHOLD:
         article.status = "rejected_ai"
         article.ai_processed = True
@@ -120,17 +107,17 @@ def process_article(article: Article, source_name: str, db: Session) -> None:
             article.title,
             kind="skipped",
             url=article.url,
-            reason=f"decision={decision} · güven {int(confidence)}/5",
+            reason=f"decision={decision} · confidence {int(confidence)}/5",
         )
         logger.info("Article %s rejected (decision=%s, confidence=%.0f)", article.id, decision, confidence)
         return
 
     why_it_matters = result_a.get("why_it_matters_for_users", "")
 
-    # ── Step 3: Announce rewrite ──────────────────────────────────────────────
+    # ── Announce rewrite ──────────────────────────────────────────────────────
     progress.emit(article.title, kind="rewriting", url=article.url)
 
-    # ── Call B: Full Article Rewrite ──────────────────────────────────────────
+    # ── Call B: Full Article Rewrite (unchanged) ──────────────────────────────
     prompt_b = ENRICH_PROMPT.format(
         title=article.title,
         source_name=source_name,
@@ -142,22 +129,23 @@ def process_article(article: Article, source_name: str, db: Session) -> None:
         result_b = _parse_json(raw_b)
         if result_b.get("headline"):
             article.title = result_b["headline"]
-        article.summary = result_b.get("body") or result_b.get("lead") or why_it_matters
-        article.impact_score = float(result_b.get("impact_score", article.impact_score))
+        article.summary      = result_b.get("body") or result_b.get("lead") or why_it_matters
+        article.impact_score = float(result_b.get("impact_score", 0.5))
     except Exception as exc:
         logger.error("Call B failed for article %s: %s", article.id, exc)
-        article.summary = why_it_matters
+        article.summary      = why_it_matters
+        article.impact_score = cons_r / 5
 
-    article.status = "pending_human"
-    article.ai_processed = True
-    article.ai_processed_at = datetime.utcnow()
+    article.status           = "pending_human"
+    article.ai_processed     = True
+    article.ai_processed_at  = datetime.utcnow()
     db.commit()
 
-    # ── Step 4: Emit final result ─────────────────────────────────────────────
+    # ── Emit final result ─────────────────────────────────────────────────────
     preview = (article.summary or "")[:160].strip()
     progress.emit(
         article.title,
-        kind="publish" if decision == "publish" else "caution",
+        kind="publish",
         url=article.url,
         topic=article.topic,
         decision=decision,
@@ -167,6 +155,6 @@ def process_article(article: Article, source_name: str, db: Session) -> None:
     )
 
     logger.info(
-        "Article %s processed: decision=%s topic=%s relevance=%.2f confidence=%.0f",
-        article.id, decision, article.topic, article.relevance_score, confidence,
+        "Article %s processed: topic=%s relevance=%.2f confidence=%.0f",
+        article.id, article.topic, article.relevance_score, confidence,
     )

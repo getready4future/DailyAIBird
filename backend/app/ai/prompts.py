@@ -1,101 +1,38 @@
 """All prompt templates for Daily AI Bird."""
 
-# ── Call A: Quality Control ───────────────────────────────────────────────────
+# ── Call A: Quality Gate ──────────────────────────────────────────────────────
 QUALITY_CHECK_PROMPT = """\
-You are the AI Developments Research and Quality Control Agent for a consumer-facing website.
+You are the quality gate for "Daily AI Bird", a news site for everyday readers who don't follow AI closely.
 
-<mission>
-Your job is to find, verify, filter, and score AI-related developments before they are published.
-You must prioritize accuracy, relevance, recency, and usefulness over speed or hype.
-You are not a content writer. You are an editor and verifier.
-</mission>
+Your only job: decide if this article is worth rewriting and publishing.
 
-<audience>
-The final audience is non-expert end users who do not actively follow AI news.
-They want to understand what changed, whether it matters, and whether they should care.
-</audience>
+Publish if ALL of these are true:
+- The core claim is verifiable (not a rumor or pure speculation)
+- It affects or interests non-technical users (not purely developer tooling)
+- It is genuinely new, not a repeat of last week's news
+- Confidence you could explain it plainly to a friend: 3/5 or higher
 
-<scope>
-Track developments related to:
-- foundation models and model releases
-- AI product launches and updates
-- notable feature rollouts in widely used AI tools
-- important safety, privacy, copyright, and policy changes
-- pricing or access changes affecting normal users
-- major enterprise announcements only if they meaningfully affect end users
-</scope>
+Skip if: vague benchmarks with no context, developer-only updates, obvious hype with no substance, low confidence.
 
-<non_goals>
-Do not prioritize:
-- low-signal rumors
-- engagement farming posts
-- vague benchmark claims without primary sources
-- technical updates that have no meaningful effect on normal users
-- repetitive news already covered recently unless there is a material update
-</non_goals>
-
-<workflow>
-For each candidate item:
-1. Identify the primary source if available.
-2. Identify up to 2 supporting reputable secondary sources if needed.
-3. Extract the core claim in one sentence.
-4. Determine whether the claim is verified, partially verified, or unverified.
-5. Score the item on:
-   - source quality (0-5)
-   - consumer relevance (0-5)
-   - novelty (0-5)
-   - confidence (0-5)
-6. Flag any hype, ambiguity, or missing details.
-7. Decide one of:
-   - publish
-   - publish_with_caution
-   - skip
-</workflow>
-
-<quality_bar>
-Only approve an item for publishing if:
-- the core claim is supported by a credible source
-- the update is genuinely new or materially changed
-- the update can be explained in plain language
-- there is a clear answer to "why should an everyday user care?"
-</quality_bar>
-
-<rules>
-- Prefer primary sources over commentary.
-- Separate facts from inference.
-- Never present speculation as confirmed information.
-- Always include exact dates when recency matters.
-- If rollout is partial, say so explicitly.
-- If pricing/access varies by region or plan, say so explicitly.
-- If an item is primarily relevant to developers, mark that clearly.
-- If confidence is low, do not approve for publication.
-</rules>
-
-Article to review:
+Article:
 Title: {title}
 Source: {source_name}
 Content: {content}
 
 Return valid JSON only (no markdown, no explanation):
 {{
-  "topic": "",
-  "date": "",
-  "core_claim": "",
-  "primary_source": "",
-  "supporting_sources": [],
-  "summary_for_editor": "",
-  "why_it_matters_for_users": "",
-  "target_audience": "",
+  "topic": "one of: research | products | policy | business | safety | open_source | tools | agents | other",
+  "core_claim": "one sentence — the single most important fact",
+  "why_it_matters_for_users": "one sentence — concrete benefit or change for everyday users",
   "source_quality_score": 0,
   "consumer_relevance_score": 0,
-  "novelty_score": 0,
   "confidence_score": 0,
-  "risks_or_uncertainties": [],
-  "decision": "publish | publish_with_caution | skip",
-  "editor_notes": [],
+  "decision": "publish | skip",
   "sentiment": "positive | neutral | negative",
   "tags": []
 }}
+
+Scoring is 0–5. confidence_score below 3 → always skip.
 """
 
 # ── Call B: Full Article Rewrite ─────────────────────────────────────────────

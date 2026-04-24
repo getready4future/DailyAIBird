@@ -94,17 +94,10 @@ function EvRewriting({ ev }: { ev: ScrapeEvent }) {
 }
 
 function EvReady({ ev }: { ev: ScrapeEvent }) {
-  const isPublish = ev.kind === 'publish'
   return (
-    <div className={`rounded-lg border p-3.5 ${
-      isPublish
-        ? 'border-emerald-800/50 bg-emerald-950/25'
-        : 'border-yellow-800/50 bg-yellow-950/15'
-    }`}>
+    <div className="rounded-lg border border-emerald-800/50 bg-emerald-950/25 p-3.5">
       <div className="mb-2 flex flex-wrap items-center gap-2">
-        <span className={`text-xs font-bold tracking-wide uppercase ${isPublish ? 'text-emerald-400' : 'text-yellow-400'}`}>
-          {isPublish ? '✓ Queued' : '⚠ Review needed'}
-        </span>
+        <span className="text-xs font-bold tracking-wide uppercase text-emerald-400">✓ Queued</span>
         {ev.topic && (
           <span className="rounded-full border border-gray-700 bg-gray-800 px-2 py-0.5 text-xs text-gray-300">{ev.topic}</span>
         )}
@@ -154,8 +147,7 @@ function PipelineEvent({ ev }: { ev: ScrapeEvent }) {
     case 'analyzing': return <EvAnalyzing ev={ev} />
     case 'scored':    return <EvScored ev={ev} />
     case 'rewriting': return <EvRewriting ev={ev} />
-    case 'publish':
-    case 'caution':   return <EvReady ev={ev} />
+    case 'publish':   return <EvReady ev={ev} />
     case 'skipped':   return <EvSkipped ev={ev} />
     default:          return <EvSystem ev={ev} />
   }
@@ -176,9 +168,9 @@ function ScrapePanel({ onClose, onDone }: { onClose: () => void; onDone: () => v
       const event: ScrapeEvent = JSON.parse(e.data)
       setEvents((prev) => [...prev, event])
       setCounts((prev) => ({
-        found:   prev.found   + (event.kind === 'found'                              ? 1 : 0),
-        ready:   prev.ready   + (event.kind === 'publish' || event.kind === 'caution' ? 1 : 0),
-        skipped: prev.skipped + (event.kind === 'skipped'                            ? 1 : 0),
+        found:   prev.found   + (event.kind === 'found'   ? 1 : 0),
+        ready:   prev.ready   + (event.kind === 'publish' ? 1 : 0),
+        skipped: prev.skipped + (event.kind === 'skipped' ? 1 : 0),
       }))
       if (event.kind === 'done') {
         setDone(true)
