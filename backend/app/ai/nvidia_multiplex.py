@@ -15,8 +15,8 @@ logger = logging.getLogger(__name__)
 NVIDIA_URL = "https://integrate.api.nvidia.com/v1/chat/completions"
 
 DEFAULT_CHAIN = [
-    "meta/llama-3.3-70b-instruct",
     "deepseek-ai/deepseek-v3.2",
+    "meta/llama-3.3-70b-instruct",
     "moonshotai/kimi-k2.5",
     "mistralai/mistral-medium-3-instruct",
 ]
@@ -46,7 +46,7 @@ class NvidiaMultiplex:
         self.api_key = api_key
         self.models = [_ModelState(m) for m in (chain or DEFAULT_CHAIN)]
         self.cooldown = cooldown_sec
-        self._client = httpx.Client(timeout=60)
+        self._client = httpx.Client(timeout=15)
 
     def _available(self) -> list[_ModelState]:
         now = time.monotonic()
