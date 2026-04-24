@@ -10,24 +10,30 @@ export default function Home() {
   const sort = (params.get('sort') as 'relevance' | 'date') || 'relevance'
   const page = Number(params.get('page') || '1')
 
-  const { data, isLoading, error } = useArticles({ topic, sort, page, per_page: 21 })
+  const { data, isLoading, error } = useArticles({ topic, sort, page, per_page: 20 })
 
   const setPage = (p: number) => {
     const next = new URLSearchParams(params)
     next.set('page', String(p))
     setParams(next)
+    window.scrollTo({ top: 0, behavior: 'smooth' })
   }
+
+  const showPagination = data && (page > 1 || data.has_next)
 
   return (
     <div>
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">Latest AI News</h1>
-        <p className="mt-1 text-sm text-gray-500">
-          AI-curated stories from the top sources, reviewed and published by humans
-        </p>
+      <div className="mb-5 flex items-end justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Latest AI News</h1>
+          <p className="mt-0.5 text-sm text-gray-400">Curated & rewritten by AI · approved by humans</p>
+        </div>
+        {data && <span className="shrink-0 text-xs text-gray-400">{data.total} stories</span>}
       </div>
 
-      <ArticleFilters />
+      <div className="mb-6">
+        <ArticleFilters />
+      </div>
 
       {isLoading ? (
         <div className="flex justify-center py-20"><Spinner size="lg" /></div>
@@ -36,24 +42,23 @@ export default function Home() {
       ) : (
         <>
           <ArticleGrid articles={data?.items ?? []} />
-          {data && data.total > 0 && (
-            <div className="mt-8 flex items-center justify-center gap-4">
+
+          {showPagination && (
+            <div className="mt-10 flex items-center justify-center gap-3">
               <button
                 disabled={page <= 1}
                 onClick={() => setPage(page - 1)}
-                className="rounded-lg border px-4 py-2 text-sm disabled:opacity-40"
+                className="rounded-full border border-gray-200 px-5 py-2 text-sm font-medium text-gray-600 hover:border-gray-400 disabled:opacity-30 transition"
               >
-                Previous
+                ← Previous
               </button>
-              <span className="text-sm text-gray-600">
-                Page {page} · {data.total} total
-              </span>
+              <span className="text-sm text-gray-400">Page {page}</span>
               <button
                 disabled={!data.has_next}
                 onClick={() => setPage(page + 1)}
-                className="rounded-lg border px-4 py-2 text-sm disabled:opacity-40"
+                className="rounded-full border border-gray-200 px-5 py-2 text-sm font-medium text-gray-600 hover:border-gray-400 disabled:opacity-30 transition"
               >
-                Next
+                Next →
               </button>
             </div>
           )}
