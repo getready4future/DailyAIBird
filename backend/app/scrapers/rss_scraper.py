@@ -1,5 +1,7 @@
+import asyncio
 import logging
 from datetime import datetime, timezone
+from urllib.parse import urlparse
 
 import feedparser
 import httpx
@@ -10,9 +12,11 @@ from app.scrapers.base import BaseScraper, ScrapedArticle
 logger = logging.getLogger(__name__)
 
 HEADERS = {
-    "User-Agent": "DailyAIBird/1.0 (+https://github.com/getready4future/DailyAIBird)",
+    "User-Agent": "Mozilla/5.0 (compatible; DailyAIBird/1.0; +https://github.com/getready4future/DailyAIBird)",
 }
 MAX_CONTENT_CHARS = 4000
+# After N consecutive 429s from a domain, stop fetching pages from it
+_PAGE_FETCH_MAX_CONSECUTIVE_429 = 3
 
 
 def _extract_text(html: str) -> str:
@@ -80,6 +84,9 @@ class RssScraper(BaseScraper):
             return []
 
         articles: list[ScrapedArticle] = []
+        # Per-domain consecutive-429 counter — stop page fetching after too many
+        domain_429: dict[str, int] = {}
+
         async with httpx.AsyncClient(headers=HEADERS, timeout=15, follow_redirects=True) as client:
             for entry in feed.entries:
                 url = getattr(entry, "link", None)
@@ -96,18 +103,28 @@ class RssScraper(BaseScraper):
 
                 image_url = _image_from_feed_entry(entry)
 
-                # Fetch full page (for text and/or OG image)
-                if fetch_full_text or not image_url:
+                # Fetch full page (for text and/or OG image) unless domain is rate-limiting us
+                domain = urlparse(url).netloc
+                if (fetch_full_text or not image_url) and domain_429.get(domain, 0) < _PAGE_FETCH_MAX_CONSECUTIVE_429:
                     try:
+                        await asyncio.sleep(0.15)  # polite delay between page requests
                         resp = await client.get(url)
-                        resp.raise_for_status()
-                        html = resp.text
-                        if fetch_full_text:
-                            raw_content = _extract_text(html)
-                        if not image_url:
-                            image_url = _extract_og_image(html)
+                        if resp.status_code == 429:
+                            domain_429[domain] = domain_429.get(domain, 0) + 1
+                            if domain_429[domain] >= _PAGE_FETCH_MAX_CONSECUTIVE_429:
+                                logger.info("RSS page fetch: %s rate-limiting — skipping remaining page fetches for this domain", domain)
+                        else:
+                            domain_429[domain] = 0  # reset on success
+                            resp.raise_for_status()
+                            html = resp.text
+                            if fetch_full_text:
+                                raw_content = _extract_text(html)
+                            if not image_url:
+                                image_url = _extract_og_image(html)
+                    except httpx.HTTPStatusError as exc:
+                        logger.debug("Page fetch HTTP error for %s: %s", url, exc)
                     except Exception as exc:
-                        logger.warning("Page fetch failed for %s: %s", url, exc)
+                        logger.debug("Page fetch failed for %s: %s", url, exc)
 
                 raw_content = raw_content[:MAX_CONTENT_CHARS]
 

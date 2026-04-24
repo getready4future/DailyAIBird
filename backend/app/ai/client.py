@@ -15,6 +15,10 @@ _multiplex              = None   # NVIDIA NvidiaMultiplex instance
 _openrouter_ok          = True   # last OpenRouter call succeeded
 _openrouter_model_override: str | None = None   # runtime override (admin panel)
 
+# Time-based cooldown — after 429 skip OpenRouter for this many seconds
+_openrouter_cooldown_until: float = 0.0
+_OPENROUTER_COOLDOWN_SEC: float = 60.0
+
 # Runtime provider selection: "openrouter" | "nvidia" | "generic"
 _active_provider: str = ""
 
@@ -108,7 +112,7 @@ def _get_openai():
 
 
 def _call_openrouter(prompt: str, max_tokens: int) -> str:
-    global _openrouter_ok
+    global _openrouter_ok, _openrouter_cooldown_until
     from openai import RateLimitError
     client = _get_openrouter()
     try:
@@ -119,12 +123,16 @@ def _call_openrouter(prompt: str, max_tokens: int) -> str:
             timeout=90,
         )
         _openrouter_ok = True
+        _openrouter_cooldown_until = 0.0
         return response.choices[0].message.content or ""
     except RateLimitError as exc:
         _openrouter_ok = False
+        _openrouter_cooldown_until = time.monotonic() + _OPENROUTER_COOLDOWN_SEC
+        logger.warning("OpenRouter 429 — cooling down for %ds", _OPENROUTER_COOLDOWN_SEC)
         raise RuntimeError(f"OpenRouter rate limit: {exc}") from exc
     except Exception as exc:
         _openrouter_ok = False
+        _openrouter_cooldown_until = time.monotonic() + _OPENROUTER_COOLDOWN_SEC
         raise RuntimeError(f"OpenRouter error: {exc}") from exc
 
 
@@ -162,7 +170,8 @@ def _call_generic(prompt: str, max_tokens: int) -> str:
 def call_claude(prompt: str, max_tokens: int = 1024) -> str:
     """
     Calls the active provider first, falls back to the others.
-    Provider order is controlled by set_active_provider() (admin panel).
+    If OpenRouter is in a 429 cooldown window, it is moved to the end of the
+    order so NVIDIA (or generic) handles the call immediately.
     """
     provider = get_active_provider()
 
@@ -172,6 +181,12 @@ def call_claude(prompt: str, max_tokens: int = 1024) -> str:
         order = ["nvidia", "openrouter", "generic"]
     else:
         order = ["generic", "openrouter", "nvidia"]
+
+    # Demote OpenRouter to last position while it's in cooldown
+    if time.monotonic() < _openrouter_cooldown_until:
+        remaining = round(_openrouter_cooldown_until - time.monotonic())
+        logger.debug("OpenRouter in cooldown (%ds remaining) — trying other providers first", remaining)
+        order = [p for p in order if p != "openrouter"] + ["openrouter"]
 
     last_exc: Exception | None = None
     for p in order:
