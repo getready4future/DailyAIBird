@@ -16,7 +16,7 @@ scheduler = None  # set during lifespan, referenced by admin router
 
 
 def _seed_admin_user() -> None:
-    """Create the default admin user if no users exist."""
+    """Create or update the default admin user."""
     import secrets
     from app.database import SessionLocal
     from app.models.admin_user import AdminUser
@@ -25,8 +25,10 @@ def _seed_admin_user() -> None:
 
     db = SessionLocal()
     try:
-        if db.query(AdminUser).count() == 0:
-            password = settings.ADMIN_PASSWORD
+        existing = db.query(AdminUser).filter(AdminUser.username == "admin").first()
+        password = settings.ADMIN_PASSWORD
+
+        if existing is None:
             if not password:
                 password = secrets.token_urlsafe(16)
                 logger.warning("=" * 60)
@@ -45,6 +47,10 @@ def _seed_admin_user() -> None:
             db.add(admin)
             db.commit()
             logger.info("Default admin user created (username: admin)")
+        elif password:
+            existing.password_hash = hash_password(password)
+            db.commit()
+            logger.info("Admin password updated from ADMIN_PASSWORD env var")
     finally:
         db.close()
 
