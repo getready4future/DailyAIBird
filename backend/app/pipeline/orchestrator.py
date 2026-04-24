@@ -8,7 +8,6 @@ Main pipeline runner:
 import asyncio
 import json
 import logging
-import time
 from datetime import datetime, timedelta
 
 from sqlalchemy.orm import Session
@@ -157,7 +156,7 @@ async def _scrape_source(source: Source, db: Session) -> tuple[int, int]:
     return found, new
 
 
-def _ai_process_pending(db: Session) -> int:
+async def _ai_process_pending(db: Session) -> int:
     """Process all pending_ai articles in batches. Returns count processed."""
     pending = (
         db.query(Article)
@@ -183,8 +182,9 @@ def _ai_process_pending(db: Session) -> int:
                 processed += 1
             except Exception as exc:
                 logger.error("AI processing failed for article %d: %s", article.id, exc)
-            time.sleep(0.5)
-        time.sleep(1)
+            # Yield to the event loop so SSE events are flushed between articles
+            await asyncio.sleep(0.5)
+        await asyncio.sleep(1)
 
     return processed
 
@@ -236,8 +236,8 @@ async def run_scrape_pipeline(source_slug: str = "all") -> dict:
         if total_new > 0:
             progress.emit("AI analizi başlıyor…", kind="info")
 
-        # AI processing (synchronous batched)
-        processed = _ai_process_pending(db)
+        # AI processing — async so sleeps yield to event loop (SSE flush)
+        processed = await _ai_process_pending(db)
 
         _flag_featured(db)
         progress.finish()

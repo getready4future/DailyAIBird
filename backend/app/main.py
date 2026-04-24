@@ -17,6 +17,7 @@ scheduler = None  # set during lifespan, referenced by admin router
 
 def _seed_admin_user() -> None:
     """Create the default admin user if no users exist."""
+    import secrets
     from app.database import SessionLocal
     from app.models.admin_user import AdminUser
     from app.auth import hash_password
@@ -25,9 +26,17 @@ def _seed_admin_user() -> None:
     db = SessionLocal()
     try:
         if db.query(AdminUser).count() == 0:
+            password = settings.ADMIN_PASSWORD
+            if not password:
+                password = secrets.token_urlsafe(16)
+                logger.warning("=" * 60)
+                logger.warning("ADMIN_PASSWORD not set in .env — generated a random password.")
+                logger.warning("Username: admin  Password: %s", password)
+                logger.warning("Add ADMIN_PASSWORD=%s to your .env to keep this password.", password)
+                logger.warning("=" * 60)
             admin = AdminUser(
                 username="admin",
-                password_hash=hash_password("Burak"),
+                password_hash=hash_password(password),
                 display_name="Admin",
                 role="admin",
                 is_active=True,
@@ -35,7 +44,7 @@ def _seed_admin_user() -> None:
             )
             db.add(admin)
             db.commit()
-            logger.info("Default admin user created (admin / Burak)")
+            logger.info("Default admin user created (username: admin)")
     finally:
         db.close()
 
@@ -117,9 +126,10 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+_cors_origins = [o.strip() for o in settings.CORS_ORIGINS.split(",") if o.strip()]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:3000", "*"],
+    allow_origins=_cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

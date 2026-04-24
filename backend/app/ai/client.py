@@ -1,10 +1,14 @@
 import logging
+import threading
 import time
 from typing import Generator
 
 from app.config import settings
 
 logger = logging.getLogger(__name__)
+
+# Single lock guarding all mutable globals — prevents races in multi-worker setups
+_state_lock = threading.RLock()
 
 _nvidia_mx              = None
 _openai_client          = None
@@ -35,38 +39,43 @@ def _default_provider() -> str:
 
 
 def get_active_provider() -> str:
-    global _active_provider
-    if not _active_provider:
-        _active_provider = _default_provider()
-    return _active_provider
+    with _state_lock:
+        global _active_provider
+        if not _active_provider:
+            _active_provider = _default_provider()
+        return _active_provider
 
 
 def set_active_provider(provider: str) -> None:
-    global _active_provider
-    _active_provider = provider
+    with _state_lock:
+        global _active_provider
+        _active_provider = provider
     logger.info("Active AI provider switched to: %s", provider)
 
 
 def get_openrouter_model() -> str:
-    return _openrouter_model_override or settings.OPENROUTER_MODEL
+    with _state_lock:
+        return _openrouter_model_override or settings.OPENROUTER_MODEL
 
 
 def set_openrouter_model(model: str) -> None:
-    global _openrouter_model_override
-    _openrouter_model_override = model
+    with _state_lock:
+        global _openrouter_model_override
+        _openrouter_model_override = model
     logger.info("OpenRouter model set to: %s", model)
 
 
 def apply_saved_chain() -> None:
     """Load persisted chain config and apply to live instances (called at startup)."""
-    global _openrouter_model_override
-    from app.ai.chain_config import load
-    config = load()
-    if config.get("openrouter_model"):
-        _openrouter_model_override = config["openrouter_model"]
-    if _nvidia_mx and config.get("nvidia_chain"):
-        from app.ai.nvidia_multiplex import _ModelState
-        _nvidia_mx.models = [_ModelState(m) for m in config["nvidia_chain"]]
+    with _state_lock:
+        global _openrouter_model_override
+        from app.ai.chain_config import load
+        config = load()
+        if config.get("openrouter_model"):
+            _openrouter_model_override = config["openrouter_model"]
+        if _nvidia_mx and config.get("nvidia_chain"):
+            from app.ai.nvidia_multiplex import _ModelState
+            _nvidia_mx.models = [_ModelState(m) for m in config["nvidia_chain"]]
 
 
 def _get_openrouter():
@@ -85,15 +94,16 @@ def _get_openrouter():
 
 
 def _get_nvidia():
-    global _nvidia_mx, _multiplex
-    if _nvidia_mx is None:
-        from app.ai.chain_config import load
-        from app.ai.nvidia_multiplex import NvidiaMultiplex
-        config = load()
-        chain  = config.get("nvidia_chain") or None
-        _nvidia_mx = NvidiaMultiplex(api_key=settings.NVIDIA_API_KEY, chain=chain)
-        _multiplex = _nvidia_mx
-    return _nvidia_mx
+    with _state_lock:
+        global _nvidia_mx, _multiplex
+        if _nvidia_mx is None:
+            from app.ai.chain_config import load
+            from app.ai.nvidia_multiplex import NvidiaMultiplex
+            config = load()
+            chain  = config.get("nvidia_chain") or None
+            _nvidia_mx = NvidiaMultiplex(api_key=settings.NVIDIA_API_KEY, chain=chain)
+            _multiplex = _nvidia_mx
+        return _nvidia_mx
 
 
 def _get_openai():
@@ -126,13 +136,16 @@ def _call_openrouter(prompt: str, max_tokens: int) -> str:
         _openrouter_cooldown_until = 0.0
         return response.choices[0].message.content or ""
     except RateLimitError as exc:
-        _openrouter_ok = False
-        _openrouter_cooldown_until = time.monotonic() + _OPENROUTER_COOLDOWN_SEC
+        with _state_lock:
+            global _openrouter_ok, _openrouter_cooldown_until
+            _openrouter_ok = False
+            _openrouter_cooldown_until = time.monotonic() + _OPENROUTER_COOLDOWN_SEC
         logger.warning("OpenRouter 429 — cooling down for %ds", _OPENROUTER_COOLDOWN_SEC)
         raise RuntimeError(f"OpenRouter rate limit: {exc}") from exc
     except Exception as exc:
-        _openrouter_ok = False
-        _openrouter_cooldown_until = time.monotonic() + _OPENROUTER_COOLDOWN_SEC
+        with _state_lock:
+            _openrouter_ok = False
+            _openrouter_cooldown_until = time.monotonic() + _OPENROUTER_COOLDOWN_SEC
         raise RuntimeError(f"OpenRouter error: {exc}") from exc
 
 
@@ -182,10 +195,11 @@ def call_claude(prompt: str, max_tokens: int = 1024) -> str:
     else:
         order = ["generic", "openrouter", "nvidia"]
 
-    # Demote OpenRouter to last position while it's in cooldown
-    if time.monotonic() < _openrouter_cooldown_until:
-        remaining = round(_openrouter_cooldown_until - time.monotonic())
-        logger.debug("OpenRouter in cooldown (%ds remaining) — trying other providers first", remaining)
+    # Demote OpenRouter to last position while it's in cooldown (read under lock)
+    with _state_lock:
+        cooldown_remaining = _openrouter_cooldown_until - time.monotonic()
+    if cooldown_remaining > 0:
+        logger.debug("OpenRouter in cooldown (%ds remaining) — trying other providers first", round(cooldown_remaining))
         order = [p for p in order if p != "openrouter"] + ["openrouter"]
 
     last_exc: Exception | None = None

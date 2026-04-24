@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { getScrapeEventsUrl } from '../../api/admin'
+import { getAdminToken } from '../../api/admin'
 
 interface PipelineEvent {
   message: string
@@ -191,34 +191,60 @@ export default function PipelinePanel({ open, sourceLabel, sessionKey, onClose }
     setDone(false)
     setConnected(false)
 
-    // Small delay so the backend has time to register the scrape start
+    const controller = new AbortController()
+    const BASE_URL = (import.meta.env.VITE_API_URL as string) || ''
+
+    // Small delay so the backend pipeline has time to register the scrape start
     const t = setTimeout(() => {
-      const url = getScrapeEventsUrl()
-      const es = new EventSource(url)
-
-      es.onopen = () => setConnected(true)
-
-      es.onmessage = (e: MessageEvent) => {
+      ;(async () => {
         try {
-          const event: PipelineEvent = JSON.parse(e.data)
-          setEvents((prev) => [...prev, event])
-          if (event.kind === 'done') {
-            setDone(true)
+          const token = getAdminToken()
+          const resp = await fetch(`${BASE_URL}/api/v1/admin/scrape-events`, {
+            headers: { Authorization: `Bearer ${token}` },
+            signal: controller.signal,
+          })
+
+          if (!resp.ok || !resp.body) {
             setConnected(false)
-            es.close()
+            return
           }
-        } catch { /* ignore parse errors */ }
-      }
 
-      es.onerror = () => {
-        setConnected(false)
-        es.close()
-      }
+          setConnected(true)
+          const reader = resp.body.getReader()
+          const decoder = new TextDecoder()
+          let buffer = ''
 
-      return () => es.close()
+          while (true) {
+            const { done, value } = await reader.read()
+            if (done) break
+            buffer += decoder.decode(value, { stream: true })
+            // SSE chunks are separated by double newlines
+            const parts = buffer.split('\n\n')
+            buffer = parts.pop() ?? ''
+            for (const part of parts) {
+              const dataLine = part.split('\n').find((l) => l.startsWith('data: '))
+              if (!dataLine) continue
+              try {
+                const event: PipelineEvent = JSON.parse(dataLine.slice(6))
+                setEvents((prev) => [...prev, event])
+                if (event.kind === 'done') {
+                  setDone(true)
+                  setConnected(false)
+                  return
+                }
+              } catch { /* ignore malformed SSE chunks */ }
+            }
+          }
+        } catch (err: unknown) {
+          if ((err as Error).name !== 'AbortError') setConnected(false)
+        }
+      })()
     }, 300)
 
-    return () => clearTimeout(t)
+    return () => {
+      clearTimeout(t)
+      controller.abort()
+    }
   }, [open, sessionKey])
 
   useEffect(() => {

@@ -59,9 +59,16 @@ def process_article(article: Article, source_name: str, db: Session, *, context_
         raw_a = call_claude(prompt_a, max_tokens=400)
         result_a = _parse_json(raw_a)
     except Exception as exc:
-        logger.error("Call A failed for article %s: %s", article.id, exc)
-        progress.emit(article.title, kind="error", url=article.url, detail=f"Call A failed: {exc}")
+        error_msg = f"AI Call A failed: {exc}"
+        logger.error("Call A failed for article %d (%s): %s", article.id, article.title, exc)
+        progress.emit(
+            article.title, kind="error", url=article.url,
+            detail=error_msg,
+            source=source_name,
+        )
+        # Send to human review — do NOT silently reject; admin can see rejection_reason
         article.status = "pending_human"
+        article.rejection_reason = error_msg
         article.ai_processed = True
         article.ai_processed_at = datetime.utcnow()
         db.commit()
@@ -133,9 +140,15 @@ def process_article(article: Article, source_name: str, db: Session, *, context_
         article.summary      = result_b.get("body") or result_b.get("lead") or why_it_matters
         article.impact_score = float(result_b.get("impact_score", 0.5))
     except Exception as exc:
-        logger.error("Call B failed for article %s: %s", article.id, exc)
+        logger.error("Call B failed for article %d (%s): %s", article.id, article.title, exc)
+        progress.emit(
+            article.title, kind="error", url=article.url,
+            detail=f"AI Call B failed (rewrite skipped): {exc}",
+            source=source_name,
+        )
         article.summary      = why_it_matters
         article.impact_score = cons_r / 5
+        article.rejection_reason = f"AI Call B failed: {exc}"
 
     article.status           = "pending_human"
     article.ai_processed     = True

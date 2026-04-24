@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { formatDistanceToNow, format } from 'date-fns'
-import { fetchQueue, approveArticle, rejectArticle, triggerScrape, triggerDigest, getScrapeEventsUrl } from '../api/admin'
+import { fetchQueue, approveArticle, rejectArticle, triggerScrape, triggerDigest, getAdminToken } from '../api/admin'
 import type { ArticleAdmin } from '../types'
 import TopicBadge from '../components/ui/TopicBadge'
 import Spinner from '../components/ui/Spinner'
@@ -159,27 +159,54 @@ function ScrapePanel({ onClose, onDone }: { onClose: () => void; onDone: () => v
   const bottomRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    const url = getScrapeEventsUrl()
-    const es = new EventSource(url)
-    es.onmessage = (e) => {
-      const event: ScrapeEvent = JSON.parse(e.data)
-      setEvents((prev) => [...prev, event])
-      setCounts((prev) => ({
-        found:   prev.found   + (event.kind === 'found'   ? 1 : 0),
-        ready:   prev.ready   + (event.kind === 'publish' ? 1 : 0),
-        skipped: prev.skipped + (event.kind === 'skipped' ? 1 : 0),
-      }))
-      if (event.kind === 'done') {
-        setDone(true)
-        es.close()
-        onDone()
+    const controller = new AbortController()
+    const BASE_URL = (import.meta.env.VITE_API_URL as string) || ''
+
+    ;(async () => {
+      try {
+        const resp = await fetch(`${BASE_URL}/api/v1/admin/scrape-events`, {
+          headers: { Authorization: `Bearer ${getAdminToken()}` },
+          signal: controller.signal,
+        })
+        if (!resp.ok || !resp.body) return
+
+        const reader = resp.body.getReader()
+        const decoder = new TextDecoder()
+        let buffer = ''
+
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
+          buffer += decoder.decode(value, { stream: true })
+          const parts = buffer.split('\n\n')
+          buffer = parts.pop() ?? ''
+          for (const part of parts) {
+            const dataLine = part.split('\n').find((l) => l.startsWith('data: '))
+            if (!dataLine) continue
+            try {
+              const event: ScrapeEvent = JSON.parse(dataLine.slice(6))
+              setEvents((prev) => [...prev, event])
+              setCounts((prev) => ({
+                found:   prev.found   + (event.kind === 'found'   ? 1 : 0),
+                ready:   prev.ready   + (event.kind === 'publish' ? 1 : 0),
+                skipped: prev.skipped + (event.kind === 'skipped' ? 1 : 0),
+              }))
+              if (event.kind === 'done') {
+                setDone(true)
+                onDone()
+                return
+              }
+            } catch { /* ignore malformed chunks */ }
+          }
+        }
+      } catch (err: unknown) {
+        if ((err as Error).name !== 'AbortError') {
+          setEvents((prev) => [...prev, { message: 'Connection lost.', kind: 'error', ts: Date.now() / 1000 }])
+        }
       }
-    }
-    es.onerror = () => {
-      setEvents((prev) => [...prev, { message: 'Connection lost.', kind: 'error', ts: Date.now() / 1000 }])
-      es.close()
-    }
-    return () => es.close()
+    })()
+
+    return () => controller.abort()
   }, [])
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [events])

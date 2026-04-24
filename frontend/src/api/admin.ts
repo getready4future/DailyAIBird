@@ -50,11 +50,11 @@ export const triggerDigest = async (): Promise<void> => {
   await adminApi.post('/admin/trigger-digest')
 }
 
-export const getScrapeEventsUrl = () => {
+/** Returns the current admin token from localStorage or env. */
+export const getAdminToken = (): string => {
   const raw = localStorage.getItem('dailyaibird_admin')
   const session = raw ? JSON.parse(raw) : null
-  const token = session?.token || import.meta.env.VITE_ADMIN_TOKEN || ''
-  return `${BASE_URL}/api/v1/admin/scrape-events?token=${encodeURIComponent(token)}`
+  return session?.token || (import.meta.env.VITE_ADMIN_TOKEN as string) || ''
 }
 
 // ── Sources ───────────────────────────────────────────────────────────────────

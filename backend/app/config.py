@@ -5,6 +5,13 @@ class Settings(BaseSettings):
     DATABASE_URL: str = "sqlite:///./data/dailyaibird.db"
     ADMIN_SECRET: str = "change-me-in-production"
 
+    # Set in .env to fix the admin password on fresh installs.
+    # If empty, a random password is generated and printed once at startup.
+    ADMIN_PASSWORD: str = ""
+
+    # Comma-separated allowed CORS origins.  Never use "*" in production.
+    CORS_ORIGINS: str = "http://localhost:5173,http://localhost:3000"
+
     # OpenRouter — primary provider (Gemma, Claude, etc.)
     OPENROUTER_API_KEY: str = ""
     OPENROUTER_MODEL: str = "google/gemma-4-31b-it:free"

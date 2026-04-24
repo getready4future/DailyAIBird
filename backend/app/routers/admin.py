@@ -8,7 +8,9 @@ import json
 import os
 import time
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Query, Security
+import threading
+
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, Security
 from fastapi.responses import StreamingResponse
 from fastapi.security import APIKeyHeader
 from pydantic import BaseModel
@@ -662,9 +664,20 @@ def reject_digest(
 # ── Live Progress Stream ──────────────────────────────────────────────────────
 
 @router.get("/scrape-events")
-async def scrape_events(token: str = Query(...)):
-    """SSE endpoint — streams scrape progress events. Token passed as query param."""
-    if token != settings.ADMIN_SECRET:
+async def scrape_events(request: Request, token: str | None = Query(None)):
+    """SSE endpoint — streams scrape progress events.
+    Accepts token via Authorization: Bearer <token> header (preferred)
+    or ?token= query param (deprecated — visible in logs).
+    """
+    auth_header = request.headers.get("Authorization", "")
+    if auth_header.startswith("Bearer "):
+        auth_token = auth_header[7:]
+    elif token:
+        auth_token = token
+    else:
+        raise HTTPException(status_code=401, detail="Token required (Authorization header or ?token=)")
+
+    if auth_token != settings.ADMIN_SECRET:
         raise HTTPException(status_code=401, detail="Invalid token")
 
     from app.ai import progress
@@ -692,18 +705,23 @@ async def scrape_events(token: str = Query(...)):
 
 # ── Manual Triggers ───────────────────────────────────────────────────────────
 
+# Prevents concurrent scrape runs — one scrape at a time across all sources
+_SCRAPE_LOCK = threading.Lock()
+
+
 @router.post("/trigger-scrape", dependencies=[Depends(_check_token)])
-async def trigger_scrape(
-    source_slug: str = "all",
-):
+async def trigger_scrape(source_slug: str = "all"):
     import asyncio
-    import threading
     from app.pipeline.orchestrator import run_scrape_pipeline
 
+    if not _SCRAPE_LOCK.acquire(blocking=False):
+        raise HTTPException(status_code=429, detail="A scrape is already running. Please wait for it to finish.")
+
     def _run_in_thread():
-        # Own event loop per thread so time.sleep() in AI processing
-        # never blocks the main FastAPI event loop (which serves SSE).
-        asyncio.run(run_scrape_pipeline(source_slug))
+        try:
+            asyncio.run(run_scrape_pipeline(source_slug))
+        finally:
+            _SCRAPE_LOCK.release()
 
     threading.Thread(target=_run_in_thread, daemon=True).start()
     return {"message": f"Scrape triggered for '{source_slug}'"}
