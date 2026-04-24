@@ -3,7 +3,11 @@ Admin / moderation routes — all require X-Admin-Token header.
 """
 from datetime import datetime
 
+import asyncio
+import json
+
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Security
+from fastapi.responses import StreamingResponse
 from fastapi.security import APIKeyHeader
 from sqlalchemy.orm import Session
 
@@ -124,6 +128,37 @@ def reject_digest(
     digest.status = "rejected"
     db.commit()
     return {"id": digest_id, "status": "rejected"}
+
+
+# ── Live Progress Stream ──────────────────────────────────────────────────────
+
+@router.get("/scrape-events")
+async def scrape_events(token: str = Query(...)):
+    """SSE endpoint — streams scrape progress events. Token passed as query param."""
+    if token != settings.ADMIN_SECRET:
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+    from app.ai import progress
+
+    async def generate():
+        index = 0
+        idle_ticks = 0
+        while idle_ticks < 600:  # max 5 min (600 × 0.5s)
+            events = progress.get_events(index)
+            for event in events:
+                yield f"data: {json.dumps(event)}\n\n"
+                index += 1
+                idle_ticks = 0
+                if event.get("kind") == "done":
+                    return
+            idle_ticks += 1
+            await asyncio.sleep(0.5)
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 # ── Manual Triggers ───────────────────────────────────────────────────────────

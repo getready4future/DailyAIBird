@@ -128,6 +128,8 @@ async def _scrape_source(source: Source, db: Session) -> tuple[int, int]:
         source.last_scraped_at = datetime.utcnow()
         db.commit()
 
+        from app.ai import progress
+        progress.emit(f"{source.name}: {new} yeni / {found} toplam", kind="scrape")
         logger.info("Scraped %s: %d found, %d new", source.name, found, new)
 
     except Exception as exc:
@@ -192,14 +194,19 @@ def _flag_featured(db: Session) -> None:
 
 async def run_scrape_pipeline(source_slug: str = "all") -> dict:
     """Entry point called by scheduler or admin endpoint."""
+    from app.ai import progress
+
     db = SessionLocal()
     try:
+        progress.start()
         _seed_sources(db)
 
         query = db.query(Source).filter(Source.is_active.is_(True))
         if source_slug != "all":
             query = query.filter(Source.slug == source_slug)
         sources = query.all()
+
+        progress.emit(f"{len(sources)} kaynak taranacak…", kind="info")
 
         # Run all scrapes concurrently
         tasks = [_scrape_source(src, db) for src in sources]
@@ -208,12 +215,22 @@ async def run_scrape_pipeline(source_slug: str = "all") -> dict:
         total_found = sum(r[0] for r in results if isinstance(r, tuple))
         total_new = sum(r[1] for r in results if isinstance(r, tuple))
 
+        progress.emit(f"Toplam {total_new} yeni makale bulundu", kind="scrape")
+
+        if total_new > 0:
+            progress.emit("AI analizi başlıyor…", kind="info")
+
         # AI processing (synchronous batched)
         processed = _ai_process_pending(db)
 
         _flag_featured(db)
+        progress.finish()
 
         return {"sources_scraped": len(sources), "found": total_found, "new": total_new, "ai_processed": processed}
+    except Exception as exc:
+        progress.emit(f"Hata: {exc}", kind="error")
+        progress.finish()
+        raise
     finally:
         db.close()
 

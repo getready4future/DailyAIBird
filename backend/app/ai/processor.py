@@ -118,6 +118,11 @@ def process_article(article: Article, source_name: str, db: Session) -> None:
     article.ai_processed_at = datetime.utcnow()
     db.commit()
 
+    from app.ai import progress
+    progress.emit(
+        f"#{article.id} {decision}: {article.topic or '—'} (güven {confidence:.0f}/5)",
+        kind="publish" if decision == "publish" else "caution" if decision == "publish_with_caution" else "info",
+    )
     logger.info(
         "Article %s processed: decision=%s topic=%s relevance=%.2f confidence=%.0f",
         article.id, decision, article.topic, article.relevance_score, confidence,

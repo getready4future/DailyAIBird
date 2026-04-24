@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { formatDistanceToNow } from 'date-fns'
 import { fetchQueue, approveArticle, rejectArticle, triggerScrape, triggerDigest } from '../api/admin'
@@ -6,6 +6,106 @@ import type { ArticleAdmin } from '../types'
 import TopicBadge from '../components/ui/TopicBadge'
 import Spinner from '../components/ui/Spinner'
 import EmptyState from '../components/ui/EmptyState'
+
+const BASE_URL = import.meta.env.VITE_API_URL || ''
+const ADMIN_TOKEN = import.meta.env.VITE_ADMIN_TOKEN || ''
+
+type LogEvent = { message: string; kind: string; ts: number }
+
+function kindStyle(kind: string) {
+  switch (kind) {
+    case 'publish':    return 'text-emerald-400'
+    case 'caution':    return 'text-yellow-400'
+    case 'scrape':     return 'text-blue-400'
+    case 'error':      return 'text-red-400'
+    case 'done':       return 'text-emerald-300 font-bold'
+    default:           return 'text-gray-400'
+  }
+}
+
+function kindPrefix(kind: string) {
+  switch (kind) {
+    case 'publish':  return '✓'
+    case 'caution':  return '⚠'
+    case 'scrape':   return '↓'
+    case 'error':    return '✗'
+    case 'done':     return '🎉'
+    default:         return '·'
+  }
+}
+
+function ScrapePanel({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
+  const [logs, setLogs] = useState<LogEvent[]>([])
+  const [done, setDone] = useState(false)
+  const bottomRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const url = `${BASE_URL}/api/v1/admin/scrape-events?token=${encodeURIComponent(ADMIN_TOKEN)}`
+    const es = new EventSource(url)
+
+    es.onmessage = (e) => {
+      const event: LogEvent = JSON.parse(e.data)
+      setLogs((prev) => [...prev, event])
+      if (event.kind === 'done') {
+        setDone(true)
+        es.close()
+        onDone()
+      }
+    }
+
+    es.onerror = () => {
+      setLogs((prev) => [...prev, { message: 'Bağlantı kesildi.', kind: 'error', ts: Date.now() / 1000 }])
+      es.close()
+    }
+
+    return () => es.close()
+  }, [])
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [logs])
+
+  return (
+    <div className="fixed inset-y-0 right-0 z-50 flex w-full max-w-md flex-col bg-gray-950 shadow-2xl">
+      <div className="flex items-center justify-between border-b border-gray-800 px-5 py-4">
+        <div className="flex items-center gap-2">
+          {!done && <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-emerald-400" />}
+          <span className="text-sm font-semibold text-white">
+            {done ? 'Tamamlandı' : 'Scraping çalışıyor…'}
+          </span>
+        </div>
+        <button onClick={onClose} className="text-gray-500 hover:text-white text-lg">✕</button>
+      </div>
+
+      <div className="flex-1 overflow-y-auto p-4 font-mono text-xs leading-relaxed">
+        {logs.map((log, i) => (
+          <div key={i} className="flex gap-2 py-0.5">
+            <span className="text-gray-600 shrink-0">
+              {new Date(log.ts * 1000).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+            </span>
+            <span className={`shrink-0 ${kindStyle(log.kind)}`}>{kindPrefix(log.kind)}</span>
+            <span className={kindStyle(log.kind)}>{log.message}</span>
+          </div>
+        ))}
+        {!done && logs.length === 0 && (
+          <p className="text-gray-600">Bağlanıyor…</p>
+        )}
+        <div ref={bottomRef} />
+      </div>
+
+      {done && (
+        <div className="border-t border-gray-800 p-4">
+          <button
+            onClick={onClose}
+            className="w-full rounded-lg bg-emerald-700 py-2 text-sm font-semibold text-white hover:bg-emerald-600"
+          >
+            Kapat
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
 
 function QualityBar({ score }: { score: number | null }) {
   if (score === null) return null
@@ -54,9 +154,6 @@ function ArticleReviewCard({ article, onApprove, onReject }: {
               <span key={f} className="rounded-full bg-orange-100 px-2 py-0.5 text-xs text-orange-700">{f}</span>
             ))}
           </div>
-        )}
-        {article.is_scam && (
-          <p className="text-xs text-red-600 font-medium">SCAM DETECTED: {article.scam_reason}</p>
         )}
       </div>
 
@@ -108,6 +205,7 @@ function ArticleReviewCard({ article, onApprove, onReject }: {
 export default function AdminQueue() {
   const qc = useQueryClient()
   const [page, setPage] = useState(1)
+  const [showPanel, setShowPanel] = useState(false)
 
   const { data: articles = [], isLoading } = useQuery({
     queryKey: ['admin-queue', page],
@@ -124,11 +222,25 @@ export default function AdminQueue() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['admin-queue'] }),
   })
 
-  const scrapeMut = useMutation({ mutationFn: triggerScrape })
+  const scrapeMut = useMutation({
+    mutationFn: triggerScrape,
+    onSuccess: () => setShowPanel(true),
+  })
+
   const digestMut = useMutation({ mutationFn: triggerDigest })
 
   return (
     <div>
+      {showPanel && (
+        <>
+          <div className="fixed inset-0 z-40 bg-black/40" onClick={() => setShowPanel(false)} />
+          <ScrapePanel
+            onClose={() => setShowPanel(false)}
+            onDone={() => qc.invalidateQueries({ queryKey: ['admin-queue'] })}
+          />
+        </>
+      )}
+
       <div className="mb-6 flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Moderation Queue</h1>
@@ -149,7 +261,7 @@ export default function AdminQueue() {
             disabled={scrapeMut.isPending}
             className="rounded-lg bg-gray-900 px-4 py-2 text-sm text-white hover:bg-gray-700 disabled:opacity-50 transition"
           >
-            {scrapeMut.isPending ? 'Running...' : 'Run Scrape'}
+            {scrapeMut.isPending ? 'Starting...' : 'Run Scrape'}
           </button>
         </div>
       </div>
