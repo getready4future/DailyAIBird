@@ -50,6 +50,8 @@ def _seed_admin_user() -> None:
 
 
 DEFAULT_SOURCE_SLUGS = [
+    # Aggregator
+    "google-news-ai",
     # AI Lab blogs
     "openai-news", "anthropic-news", "deepmind-blog", "google-ai-blog",
     "meta-ai-blog", "microsoft-ai-blog", "huggingface-blog",

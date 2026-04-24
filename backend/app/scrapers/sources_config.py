@@ -46,6 +46,21 @@ SOURCES: list[dict] = [
         "is_active": False,
         "scrape_config": {"fetch_full_text": True},
     },
+    # ── Google News ───────────────────────────────────────────────────────────
+    {
+        "name": "Google News AI",
+        "slug": "google-news-ai",
+        "url": "https://news.google.com/search?q=artificial+intelligence",
+        "feed_url": (
+            "https://news.google.com/rss/search"
+            "?q=artificial+intelligence+OR+LLM+OR+AI+model+OR+machine+learning"
+            "&hl=en-US&gl=US&ceid=US:en"
+        ),
+        "scraper_type": "gnews",
+        "category": "news",
+        "is_active": True,
+        "scrape_config": {},
+    },
     # ── Tech News (RSS) ───────────────────────────────────────────────────────
     {
         "name": "TechCrunch AI",

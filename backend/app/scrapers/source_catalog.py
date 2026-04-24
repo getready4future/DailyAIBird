@@ -115,6 +115,21 @@ CATALOG: list[dict] = [
         "description": "AWS cloud AI/ML products, tutorials and case studies.",
         "tags": ["aws", "amazon", "cloud"],
     },
+    # ── Google News ───────────────────────────────────────────────────────────
+    {
+        "name": "Google News AI",
+        "slug": "google-news-ai",
+        "url": "https://news.google.com/search?q=artificial+intelligence",
+        "feed_url": (
+            "https://news.google.com/rss/search"
+            "?q=artificial+intelligence+OR+LLM+OR+AI+model+OR+machine+learning"
+            "&hl=en-US&gl=US&ceid=US:en"
+        ),
+        "scraper_type": "gnews",
+        "category": "news",
+        "description": "Google News AI search feed — aggregates top AI stories from across the web.",
+        "tags": ["aggregator", "google", "broad", "multi-source"],
+    },
     # ── Tech News ─────────────────────────────────────────────────────────────
     {
         "name": "TechCrunch AI",
