@@ -112,6 +112,7 @@ async def _scrape_source(source: Source, db: Session) -> tuple[int, int]:
                 raw_content=article.raw_content,
                 external_id=article.external_id,
                 tags=json.dumps(article.tags),
+                image_url=article.image_url,
                 status="pending_ai",
                 ai_processed=False,
             )

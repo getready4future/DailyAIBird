@@ -20,6 +20,7 @@ class Article(Base):
 
     # Raw content before AI processing
     raw_content: Mapped[Optional[str]] = mapped_column(Text)
+    image_url: Mapped[Optional[str]] = mapped_column(String(1000))
 
     # AI-generated enrichment (Call B)
     summary: Mapped[Optional[str]] = mapped_column(Text)

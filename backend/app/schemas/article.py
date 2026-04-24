@@ -23,6 +23,7 @@ class ArticleOut(BaseModel):
     flags: list[str]
     is_featured: bool
     status: str
+    image_url: Optional[str]
     source: SourceOut
     created_at: datetime
 

@@ -13,6 +13,7 @@ class ScrapedArticle:
     published_at: Optional[datetime] = None
     external_id: Optional[str] = None
     tags: list[str] = field(default_factory=list)
+    image_url: Optional[str] = None
 
 
 class BaseScraper(ABC):

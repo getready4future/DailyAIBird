@@ -25,6 +25,7 @@ export interface Article {
   flags: string[]
   is_featured: boolean
   status: string
+  image_url: string | null
   source: Source
   created_at: string
 }
