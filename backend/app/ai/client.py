@@ -132,12 +132,12 @@ def _call_openrouter(prompt: str, max_tokens: int) -> str:
             messages=[{"role": "user", "content": prompt}],
             timeout=90,
         )
-        _openrouter_ok = True
-        _openrouter_cooldown_until = 0.0
+        with _state_lock:
+            _openrouter_ok = True
+            _openrouter_cooldown_until = 0.0
         return response.choices[0].message.content or ""
     except RateLimitError as exc:
         with _state_lock:
-            global _openrouter_ok, _openrouter_cooldown_until
             _openrouter_ok = False
             _openrouter_cooldown_until = time.monotonic() + _OPENROUTER_COOLDOWN_SEC
         logger.warning("OpenRouter 429 — cooling down for %ds", _OPENROUTER_COOLDOWN_SEC)
