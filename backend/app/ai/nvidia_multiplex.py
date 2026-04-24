@@ -46,7 +46,7 @@ class NvidiaMultiplex:
         self.api_key = api_key
         self.models = [_ModelState(m) for m in (chain or DEFAULT_CHAIN)]
         self.cooldown = cooldown_sec
-        self._client = httpx.Client(timeout=15)
+        self._client = httpx.Client(timeout=5)
 
     def _available(self) -> list[_ModelState]:
         now = time.monotonic()
