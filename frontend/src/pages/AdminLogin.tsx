@@ -19,8 +19,16 @@ export default function AdminLogin() {
       const session = await adminLogin(username, password)
       saveSession(session)
       navigate('/admin', { replace: true })
-    } catch {
-      setError('Invalid username or password.')
+    } catch (err: any) {
+      if (err?.code === 'ERR_NETWORK' || err?.message === 'Network Error') {
+        setError(`Sunucuya ulaşılamıyor. API URL: ${import.meta.env.VITE_API_URL || '(boş)'}`)
+      } else if (err?.response?.status === 401) {
+        setError('Hatalı kullanıcı adı veya şifre.')
+      } else if (err?.response?.status === 0 || !err?.response) {
+        setError(`CORS veya network hatası. Origin: ${window.location.origin}`)
+      } else {
+        setError(`Hata ${err?.response?.status}: ${err?.response?.data?.detail || err?.message}`)
+      }
     } finally {
       setLoading(false)
     }
