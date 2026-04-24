@@ -99,6 +99,24 @@ export const testSource = async (id: number): Promise<SourceTestArticle[]> => {
   return data
 }
 
+// ── Model Chain ───────────────────────────────────────────────────────────────
+
+export interface ModelChainConfig {
+  nvidia_chain: string[]
+  openrouter_model: string
+  default_chain: string[]
+}
+
+export const fetchModelChain = async (): Promise<ModelChainConfig> => {
+  const { data } = await adminApi.get<ModelChainConfig>('/admin/model-chain')
+  return data
+}
+
+export const updateModelChain = async (body: { nvidia_chain?: string[]; openrouter_model?: string }): Promise<ModelChainConfig> => {
+  const { data } = await adminApi.put<ModelChainConfig>('/admin/model-chain', body)
+  return data
+}
+
 // ── AI Provider ───────────────────────────────────────────────────────────────
 
 export interface AiProviderInfo {

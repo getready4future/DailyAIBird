@@ -6,16 +6,16 @@ from app.config import settings
 
 logger = logging.getLogger(__name__)
 
-_nvidia_mx         = None
-_openai_client     = None
-_openrouter_client = None
+_nvidia_mx              = None
+_openai_client          = None
+_openrouter_client      = None
 
-# Public aliases so admin router can inspect states
-_multiplex     = None   # NVIDIA chain
-_openrouter_ok = True   # tracks last OpenRouter call result
+# Public aliases for admin router
+_multiplex              = None   # NVIDIA NvidiaMultiplex instance
+_openrouter_ok          = True   # last OpenRouter call succeeded
+_openrouter_model_override: str | None = None   # runtime override (admin panel)
 
 # Runtime provider selection: "openrouter" | "nvidia" | "generic"
-# Defaults to first configured provider; admin can toggle at runtime.
 _active_provider: str = ""
 
 
@@ -40,6 +40,28 @@ def set_active_provider(provider: str) -> None:
     logger.info("Active AI provider switched to: %s", provider)
 
 
+def get_openrouter_model() -> str:
+    return _openrouter_model_override or settings.OPENROUTER_MODEL
+
+
+def set_openrouter_model(model: str) -> None:
+    global _openrouter_model_override
+    _openrouter_model_override = model
+    logger.info("OpenRouter model set to: %s", model)
+
+
+def apply_saved_chain() -> None:
+    """Load persisted chain config and apply to live instances (called at startup)."""
+    global _openrouter_model_override
+    from app.ai.chain_config import load
+    config = load()
+    if config.get("openrouter_model"):
+        _openrouter_model_override = config["openrouter_model"]
+    if _nvidia_mx and config.get("nvidia_chain"):
+        from app.ai.nvidia_multiplex import _ModelState
+        _nvidia_mx.models = [_ModelState(m) for m in config["nvidia_chain"]]
+
+
 def _get_openrouter():
     global _openrouter_client
     if _openrouter_client is None:
@@ -58,8 +80,11 @@ def _get_openrouter():
 def _get_nvidia():
     global _nvidia_mx, _multiplex
     if _nvidia_mx is None:
+        from app.ai.chain_config import load
         from app.ai.nvidia_multiplex import NvidiaMultiplex
-        _nvidia_mx = NvidiaMultiplex(api_key=settings.NVIDIA_API_KEY)
+        config = load()
+        chain  = config.get("nvidia_chain") or None
+        _nvidia_mx = NvidiaMultiplex(api_key=settings.NVIDIA_API_KEY, chain=chain)
         _multiplex = _nvidia_mx
     return _nvidia_mx
 
@@ -85,7 +110,7 @@ def _call_openrouter(prompt: str, max_tokens: int) -> str:
     client = _get_openrouter()
     try:
         response = client.chat.completions.create(
-            model=settings.OPENROUTER_MODEL,
+            model=get_openrouter_model(),
             max_tokens=max_tokens,
             messages=[{"role": "user", "content": prompt}],
             timeout=90,
@@ -133,23 +158,20 @@ def _call_generic(prompt: str, max_tokens: int) -> str:
 
 def call_claude(prompt: str, max_tokens: int = 1024) -> str:
     """
-    Calls the active provider first, then falls back to the others.
-    Active provider is controlled by set_active_provider() / admin panel.
-    Name kept as call_claude so processor.py / digest_generator.py don't change.
+    Calls the active provider first, falls back to the others.
+    Provider order is controlled by set_active_provider() (admin panel).
     """
     provider = get_active_provider()
 
-    # Build ordered list: [selected, ...rest]
-    all_providers = []
     if provider == "openrouter":
-        all_providers = ["openrouter", "nvidia", "generic"]
+        order = ["openrouter", "nvidia", "generic"]
     elif provider == "nvidia":
-        all_providers = ["nvidia", "openrouter", "generic"]
+        order = ["nvidia", "openrouter", "generic"]
     else:
-        all_providers = ["generic", "openrouter", "nvidia"]
+        order = ["generic", "openrouter", "nvidia"]
 
     last_exc: Exception | None = None
-    for p in all_providers:
+    for p in order:
         try:
             if p == "openrouter" and settings.OPENROUTER_API_KEY:
                 return _call_openrouter(prompt, max_tokens)
@@ -160,7 +182,6 @@ def call_claude(prompt: str, max_tokens: int = 1024) -> str:
         except Exception as exc:
             logger.warning("Provider %s failed: %s — trying next", p, exc)
             last_exc = exc
-            continue
 
     raise RuntimeError(
         f"All AI providers failed. Last error: {last_exc}. "
@@ -175,7 +196,7 @@ def stream_claude(prompt: str, max_tokens: int = 1024) -> Generator[str, None, N
 
     if provider == "openrouter" and settings.OPENROUTER_API_KEY:
         client = _get_openrouter()
-        model  = settings.OPENROUTER_MODEL
+        model  = get_openrouter_model()
         label  = "OpenRouter"
     elif settings.AI_API_KEY:
         client = _get_openai()
@@ -194,7 +215,7 @@ def stream_claude(prompt: str, max_tokens: int = 1024) -> Generator[str, None, N
             if chunk.choices[0].delta.content:
                 yield chunk.choices[0].delta.content
     except RateLimitError:
-        logger.warning("%s rate limit (stream) — waiting 30s", label)
+        logger.warning("%s rate limit (stream) — 30s retry", label)
         time.sleep(30)
         stream = client.chat.completions.create(
             model=model, max_tokens=max_tokens,

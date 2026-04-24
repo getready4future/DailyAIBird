@@ -225,6 +225,55 @@ def get_models_status():
     return result
 
 
+# ── Model Chain Editor ────────────────────────────────────────────────────────
+
+@router.get("/model-chain", dependencies=[Depends(_check_token)])
+def get_model_chain():
+    from app.ai.chain_config import load, DEFAULT_NVIDIA_CHAIN
+    from app.ai import client as ai_client
+
+    config = load()
+    # Use live instance order if available (reflects in-session changes)
+    if ai_client._nvidia_mx:
+        live_chain = [m.name for m in ai_client._nvidia_mx.models]
+    else:
+        live_chain = config.get("nvidia_chain") or DEFAULT_NVIDIA_CHAIN
+
+    return {
+        "nvidia_chain": live_chain,
+        "openrouter_model": ai_client.get_openrouter_model(),
+        "default_chain": DEFAULT_NVIDIA_CHAIN,
+    }
+
+
+@router.put("/model-chain", dependencies=[Depends(_check_token)])
+def update_model_chain(body: dict):
+    from app.ai.chain_config import load, save
+    from app.ai import client as ai_client
+
+    config = load()
+
+    if "nvidia_chain" in body:
+        chain = [str(m).strip() for m in body["nvidia_chain"] if str(m).strip()]
+        if not chain:
+            raise HTTPException(status_code=400, detail="Chain must have at least one model")
+        config["nvidia_chain"] = chain
+        # Apply to live instance immediately
+        if ai_client._nvidia_mx:
+            from app.ai.nvidia_multiplex import _ModelState
+            ai_client._nvidia_mx.models = [_ModelState(m) for m in chain]
+            ai_client._multiplex = ai_client._nvidia_mx
+
+    if "openrouter_model" in body:
+        model = str(body["openrouter_model"]).strip()
+        if model:
+            config["openrouter_model"] = model
+            ai_client.set_openrouter_model(model)
+
+    save(config)
+    return config
+
+
 # ── AI Provider Selection ─────────────────────────────────────────────────────
 
 @router.get("/ai-provider", dependencies=[Depends(_check_token)])
