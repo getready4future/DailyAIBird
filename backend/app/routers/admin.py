@@ -194,6 +194,14 @@ def trigger_digest(db: Session = Depends(get_db)):
     return {"id": digest.id, "status": digest.status, "headline": digest.headline}
 
 
+@router.delete("/articles/all", dependencies=[Depends(_check_token)])
+def delete_all_articles(db: Session = Depends(get_db)):
+    count = db.query(Article).count()
+    db.query(Article).delete()
+    db.commit()
+    return {"deleted": count}
+
+
 # ── Audit Log ─────────────────────────────────────────────────────────────────
 
 @router.get("/scrape-runs", dependencies=[Depends(_check_token)])
