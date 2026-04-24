@@ -124,6 +124,7 @@ export interface CatalogSource {
   description: string
   tags: string[]
   requires?: string
+  scrape_config?: Record<string, unknown>
   already_added: boolean
 }
 
