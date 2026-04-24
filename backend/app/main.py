@@ -168,11 +168,29 @@ from app.routers import admin  # noqa: E402
 app.include_router(admin.router, prefix="/api/v1")
 
 
-@app.get("/")
-def root():
-    return {"service": "Daily AI Bird API", "docs": "/docs", "health": "/api/v1/health"}
-
-
 @app.get("/api/v1/health")
 def health():
     return {"status": "ok", "service": "Daily AI Bird"}
+
+
+# Serve frontend static files if built into the image
+import os as _os
+from pathlib import Path as _Path
+
+_static_dir = _Path(__file__).parent.parent / "static"
+if _static_dir.exists():
+    from fastapi.staticfiles import StaticFiles
+    from fastapi.responses import FileResponse
+
+    app.mount("/assets", StaticFiles(directory=str(_static_dir / "assets")), name="assets")
+
+    @app.get("/{full_path:path}")
+    def serve_spa(full_path: str):
+        file = _static_dir / full_path
+        if file.exists() and file.is_file():
+            return FileResponse(str(file))
+        return FileResponse(str(_static_dir / "index.html"))
+else:
+    @app.get("/")
+    def root():
+        return {"service": "Daily AI Bird API", "docs": "/docs", "health": "/api/v1/health"}
