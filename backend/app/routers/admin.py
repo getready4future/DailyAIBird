@@ -178,7 +178,7 @@ async def test_source(source_id: int, db: Session = Depends(get_db)):
             "summary": (a.raw_content or "")[:300].strip(),
             "tags": a.tags,
         }
-        for a in articles[:3]
+        for a in articles[:2]
     ]
 
 
@@ -223,6 +223,30 @@ def get_models_status():
             })
 
     return result
+
+
+# ── AI Provider Selection ─────────────────────────────────────────────────────
+
+@router.get("/ai-provider", dependencies=[Depends(_check_token)])
+def get_ai_provider():
+    from app.ai.client import get_active_provider
+    return {
+        "active": get_active_provider(),
+        "openrouter_available": bool(settings.OPENROUTER_API_KEY),
+        "openrouter_model": settings.OPENROUTER_MODEL,
+        "nvidia_available": bool(settings.NVIDIA_API_KEY),
+        "generic_available": bool(settings.AI_API_KEY),
+    }
+
+
+@router.post("/ai-provider", dependencies=[Depends(_check_token)])
+def set_ai_provider(body: dict):
+    provider = body.get("provider", "")
+    if provider not in ("openrouter", "nvidia", "generic"):
+        raise HTTPException(status_code=400, detail="provider must be 'openrouter', 'nvidia', or 'generic'")
+    from app.ai.client import set_active_provider
+    set_active_provider(provider)
+    return {"active": provider}
 
 
 # ── Scheduler Config ──────────────────────────────────────────────────────────

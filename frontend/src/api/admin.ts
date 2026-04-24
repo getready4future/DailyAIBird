@@ -99,6 +99,26 @@ export const testSource = async (id: number): Promise<SourceTestArticle[]> => {
   return data
 }
 
+// ── AI Provider ───────────────────────────────────────────────────────────────
+
+export interface AiProviderInfo {
+  active: 'openrouter' | 'nvidia' | 'generic'
+  openrouter_available: boolean
+  openrouter_model: string
+  nvidia_available: boolean
+  generic_available: boolean
+}
+
+export const fetchAiProvider = async (): Promise<AiProviderInfo> => {
+  const { data } = await adminApi.get<AiProviderInfo>('/admin/ai-provider')
+  return data
+}
+
+export const setAiProvider = async (provider: 'openrouter' | 'nvidia' | 'generic'): Promise<{ active: string }> => {
+  const { data } = await adminApi.post('/admin/ai-provider', { provider })
+  return data
+}
+
 // ── Models ────────────────────────────────────────────────────────────────────
 
 export interface ModelStatus {

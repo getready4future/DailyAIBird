@@ -78,8 +78,10 @@ function TestPanel({ articles, onClose }: { articles: SourceTestArticle[]; onClo
 
 // ── Source card ───────────────────────────────────────────────────────────────
 
-function SourceCard({ source, onSave, onScrape }: {
+function SourceCard({ source, selected, onToggleSelect, onSave, onScrape }: {
   source: AdminSource
+  selected: boolean
+  onToggleSelect: (id: number) => void
   onSave: (id: number, data: Partial<AdminSource>) => void
   onScrape: (slug: string, name: string) => void
 }) {
@@ -115,13 +117,26 @@ function SourceCard({ source, onSave, onScrape }: {
   }
 
   return (
-    <div className={`rounded-xl border bg-gray-900 border-l-4 overflow-hidden ${
+    <div className={`rounded-xl border bg-gray-900 border-l-4 overflow-hidden transition-all ${
       source.is_active ? 'border-l-emerald-500 border-gray-800' : 'border-l-gray-700 border-gray-800 opacity-60'
-    }`}>
+    } ${selected ? 'ring-1 ring-brand-600/50' : ''}`}>
       {/* Header */}
-      <div className="flex items-center justify-between gap-3 px-5 py-4 border-b border-gray-800">
+      <div className="flex items-center justify-between gap-3 px-4 py-3.5 border-b border-gray-800">
         <div className="flex items-center gap-3 min-w-0">
-          <div>
+          {/* Checkbox */}
+          <button
+            onClick={() => onToggleSelect(source.id)}
+            className={`shrink-0 h-4.5 w-4.5 rounded border transition flex items-center justify-center ${
+              selected
+                ? 'border-brand-500 bg-brand-600 text-white'
+                : 'border-gray-600 bg-gray-800 hover:border-brand-500'
+            }`}
+            style={{ width: 18, height: 18 }}
+            aria-label="Select source"
+          >
+            {selected && <span className="text-[10px] leading-none font-bold">✓</span>}
+          </button>
+          <div className="min-w-0">
             <p className="text-sm font-bold text-white truncate">{source.name}</p>
             <p className="text-xs text-gray-500 truncate">{source.url}</p>
           </div>
@@ -402,8 +417,9 @@ function AddSourceForm({ onClose }: { onClose: () => void }) {
 
 export default function AdminSources() {
   const qc = useQueryClient()
-  const [showAdd, setShowAdd] = useState(false)
-  const [pipeline, setPipeline] = useState<{ open: boolean; label: string; key: number }>({
+  const [showAdd, setShowAdd]     = useState(false)
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
+  const [pipeline, setPipeline]   = useState<{ open: boolean; label: string; key: number }>({
     open: false, label: '', key: 0,
   })
 
@@ -417,25 +433,57 @@ export default function AdminSources() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['admin-sources'] }),
   })
 
+  function toggleSelect(id: number) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      next.has(id) ? next.delete(id) : next.add(id)
+      return next
+    })
+  }
+
+  function toggleSelectAll() {
+    if (selectedIds.size === sources.length) {
+      setSelectedIds(new Set())
+    } else {
+      setSelectedIds(new Set(sources.map((s) => s.id)))
+    }
+  }
+
   async function handleScrape(slug: string, name: string) {
     await triggerScrape(slug)
     setPipeline((p) => ({ open: true, label: name, key: p.key + 1 }))
   }
 
-  const activeCount = sources.filter((s) => s.is_active).length
+  async function handleScrapeSelected() {
+    const selected = sources.filter((s) => selectedIds.has(s.id))
+    if (!selected.length) return
+    const label = selected.length === 1
+      ? selected[0].name
+      : `${selected.length} sources`
+    // Trigger all selected sources
+    await Promise.all(selected.map((s) => triggerScrape(s.slug)))
+    setPipeline((p) => ({ open: true, label, key: p.key + 1 }))
+  }
+
+  const activeCount  = sources.filter((s) => s.is_active).length
+  const allSelected  = sources.length > 0 && selectedIds.size === sources.length
+  const someSelected = selectedIds.size > 0
 
   return (
     <div>
-      <div className="mb-6 rounded-2xl bg-gray-900 border border-gray-800 px-6 py-5">
+      {/* Header */}
+      <div className="mb-6 rounded-2xl border border-gray-800 bg-gray-900 px-6 py-5">
         <div className="flex items-center justify-between gap-4">
           <div>
-            <p className="text-[10px] font-bold tracking-widest text-gray-500 uppercase mb-1">Sources</p>
+            <p className="mb-1 text-[10px] font-bold tracking-widest text-gray-500 uppercase">Sources</p>
             <h1 className="text-xl font-bold text-white">Source Management</h1>
           </div>
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3">
             <div className="text-right">
-              <p className="text-2xl font-bold text-white">{activeCount}<span className="text-gray-600">/{sources.length}</span></p>
-              <p className="text-[10px] text-gray-500 uppercase tracking-widest">Active</p>
+              <p className="text-2xl font-bold text-white">
+                {activeCount}<span className="text-gray-600">/{sources.length}</span>
+              </p>
+              <p className="text-[10px] uppercase tracking-widest text-gray-500">Active</p>
             </div>
             <button
               onClick={() => setShowAdd((v) => !v)}
@@ -451,6 +499,39 @@ export default function AdminSources() {
 
       {showAdd && <AddSourceForm onClose={() => setShowAdd(false)} />}
 
+      {/* Selection toolbar */}
+      <div className="mb-4 flex flex-wrap items-center gap-3">
+        <button
+          onClick={toggleSelectAll}
+          className="flex items-center gap-2 rounded-lg border border-gray-700 bg-gray-900 px-3 py-1.5 text-xs font-semibold text-gray-400 transition hover:border-gray-500 hover:text-white"
+        >
+          <span className={`inline-flex h-4 w-4 items-center justify-center rounded border text-[9px] font-bold transition ${
+            allSelected ? 'border-brand-500 bg-brand-600 text-white' : 'border-gray-600 bg-gray-800'
+          }`}>
+            {allSelected ? '✓' : ''}
+          </span>
+          {allSelected ? 'Deselect All' : 'Select All'}
+        </button>
+
+        {someSelected && (
+          <>
+            <span className="text-xs text-gray-500">{selectedIds.size} selected</span>
+            <button
+              onClick={handleScrapeSelected}
+              className="rounded-lg bg-brand-600 px-4 py-1.5 text-xs font-bold text-white transition hover:bg-brand-500"
+            >
+              ↓ Scrape Selected ({selectedIds.size})
+            </button>
+            <button
+              onClick={() => setSelectedIds(new Set())}
+              className="text-xs text-gray-600 hover:text-gray-400 transition"
+            >
+              Clear
+            </button>
+          </>
+        )}
+      </div>
+
       {isLoading ? (
         <div className="flex justify-center py-20"><Spinner size="lg" /></div>
       ) : (
@@ -459,6 +540,8 @@ export default function AdminSources() {
             <SourceCard
               key={source.id}
               source={source}
+              selected={selectedIds.has(source.id)}
+              onToggleSelect={toggleSelect}
               onSave={(id, data) => updateMut.mutate({ id, data })}
               onScrape={handleScrape}
             />

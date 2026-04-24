@@ -6,13 +6,38 @@ from app.config import settings
 
 logger = logging.getLogger(__name__)
 
-_nvidia_mx       = None
-_openai_client   = None
+_nvidia_mx         = None
+_openai_client     = None
 _openrouter_client = None
 
-# Public aliases so admin router can inspect model states
-_multiplex = None          # NVIDIA chain
-_openrouter_ok = True      # tracks last OpenRouter call result
+# Public aliases so admin router can inspect states
+_multiplex     = None   # NVIDIA chain
+_openrouter_ok = True   # tracks last OpenRouter call result
+
+# Runtime provider selection: "openrouter" | "nvidia" | "generic"
+# Defaults to first configured provider; admin can toggle at runtime.
+_active_provider: str = ""
+
+
+def _default_provider() -> str:
+    if settings.OPENROUTER_API_KEY:
+        return "openrouter"
+    if settings.NVIDIA_API_KEY:
+        return "nvidia"
+    return "generic"
+
+
+def get_active_provider() -> str:
+    global _active_provider
+    if not _active_provider:
+        _active_provider = _default_provider()
+    return _active_provider
+
+
+def set_active_provider(provider: str) -> None:
+    global _active_provider
+    _active_provider = provider
+    logger.info("Active AI provider switched to: %s", provider)
 
 
 def _get_openrouter():
@@ -81,7 +106,7 @@ def _call_nvidia(prompt: str, max_tokens: int) -> str:
         messages=[{"role": "user", "content": prompt}],
         max_tokens=max_tokens,
     )
-    logger.info("NVIDIA fallback used: %s", model_name)
+    logger.info("NVIDIA used: %s", model_name)
     return text
 
 
@@ -108,49 +133,60 @@ def _call_generic(prompt: str, max_tokens: int) -> str:
 
 def call_claude(prompt: str, max_tokens: int = 1024) -> str:
     """
-    Priority: OpenRouter (Gemma 4 31B) → NVIDIA multiplex → Generic AI.
+    Calls the active provider first, then falls back to the others.
+    Active provider is controlled by set_active_provider() / admin panel.
     Name kept as call_claude so processor.py / digest_generator.py don't change.
     """
-    # 1. OpenRouter
-    if settings.OPENROUTER_API_KEY:
+    provider = get_active_provider()
+
+    # Build ordered list: [selected, ...rest]
+    all_providers = []
+    if provider == "openrouter":
+        all_providers = ["openrouter", "nvidia", "generic"]
+    elif provider == "nvidia":
+        all_providers = ["nvidia", "openrouter", "generic"]
+    else:
+        all_providers = ["generic", "openrouter", "nvidia"]
+
+    last_exc: Exception | None = None
+    for p in all_providers:
         try:
-            return _call_openrouter(prompt, max_tokens)
+            if p == "openrouter" and settings.OPENROUTER_API_KEY:
+                return _call_openrouter(prompt, max_tokens)
+            elif p == "nvidia" and settings.NVIDIA_API_KEY:
+                return _call_nvidia(prompt, max_tokens)
+            elif p == "generic" and settings.AI_API_KEY:
+                return _call_generic(prompt, max_tokens)
         except Exception as exc:
-            logger.warning("OpenRouter failed (%s) — falling back to NVIDIA", exc)
+            logger.warning("Provider %s failed: %s — trying next", p, exc)
+            last_exc = exc
+            continue
 
-    # 2. NVIDIA multiplex chain
-    if settings.NVIDIA_API_KEY:
-        try:
-            return _call_nvidia(prompt, max_tokens)
-        except Exception as exc:
-            logger.warning("NVIDIA chain exhausted (%s) — falling back to generic AI", exc)
-
-    # 3. Generic OpenAI-compatible (Groq / Gemini / etc.)
-    if settings.AI_API_KEY:
-        return _call_generic(prompt, max_tokens)
-
-    raise RuntimeError("No AI provider configured. Set OPENROUTER_API_KEY, NVIDIA_API_KEY, or AI_API_KEY.")
+    raise RuntimeError(
+        f"All AI providers failed. Last error: {last_exc}. "
+        "Set OPENROUTER_API_KEY, NVIDIA_API_KEY, or AI_API_KEY."
+    )
 
 
 def stream_claude(prompt: str, max_tokens: int = 1024) -> Generator[str, None, None]:
-    """Streaming — uses OpenRouter if configured, else generic AI."""
+    """Streaming — uses active provider (OpenRouter preferred, then generic)."""
     from openai import RateLimitError
+    provider = get_active_provider()
 
-    if settings.OPENROUTER_API_KEY:
+    if provider == "openrouter" and settings.OPENROUTER_API_KEY:
         client = _get_openrouter()
-        api_key_label = "OpenRouter"
-        model = settings.OPENROUTER_MODEL
+        model  = settings.OPENROUTER_MODEL
+        label  = "OpenRouter"
     elif settings.AI_API_KEY:
         client = _get_openai()
-        api_key_label = "Generic AI"
-        model = settings.AI_MODEL
+        model  = settings.AI_MODEL
+        label  = "Generic AI"
     else:
         raise RuntimeError("No streaming AI provider configured.")
 
     try:
         stream = client.chat.completions.create(
-            model=model,
-            max_tokens=max_tokens,
+            model=model, max_tokens=max_tokens,
             messages=[{"role": "user", "content": prompt}],
             stream=True,
         )
@@ -158,11 +194,10 @@ def stream_claude(prompt: str, max_tokens: int = 1024) -> Generator[str, None, N
             if chunk.choices[0].delta.content:
                 yield chunk.choices[0].delta.content
     except RateLimitError:
-        logger.warning("%s rate limit (stream) — waiting 30s before retry", api_key_label)
+        logger.warning("%s rate limit (stream) — waiting 30s", label)
         time.sleep(30)
         stream = client.chat.completions.create(
-            model=model,
-            max_tokens=max_tokens,
+            model=model, max_tokens=max_tokens,
             messages=[{"role": "user", "content": prompt}],
             stream=True,
         )
