@@ -5,11 +5,14 @@ class Settings(BaseSettings):
     DATABASE_URL: str = "sqlite:///./data/dailyaibird.db"
     ADMIN_SECRET: str = "change-me-in-production"
 
-    # AI provider (OpenRouter, Groq, Gemini, etc. — all OpenAI-compatible)
+    # NVIDIA Build API (primary — multiplex fallback chain)
+    NVIDIA_API_KEY: str = ""
+
+    # Fallback: OpenAI-compatible provider (Groq, Gemini, etc.)
     AI_API_KEY: str = ""
-    AI_MODEL: str = "google/gemma-4-31b-it:free"
-    AI_BASE_URL: str = "https://openrouter.ai/api/v1"
-    AI_SITE_URL: str = "https://dailyaibird.com"   # sent to OpenRouter for rankings
+    AI_MODEL: str = "llama-3.1-8b-instant"
+    AI_BASE_URL: str = "https://api.groq.com/openai/v1"
+    AI_SITE_URL: str = "https://dailyaibird.com"
     AI_SITE_NAME: str = "Daily AI Bird"
 
     SCRAPE_SCHEDULE_HOUR: int = 6

@@ -2,39 +2,57 @@ import logging
 import time
 from typing import Generator
 
-from openai import OpenAI, RateLimitError
-
 from app.config import settings
 
 logger = logging.getLogger(__name__)
 
-_client: OpenAI | None = None
+_nvidia_mx = None
+_openai_client = None
 
 # Exposed so digest_generator.py can log the model name
 MODEL = settings.AI_MODEL
 
 
-def get_client() -> OpenAI:
-    global _client
-    if _client is None:
-        _client = OpenAI(
+def _get_nvidia():
+    global _nvidia_mx
+    if _nvidia_mx is None:
+        from app.ai.nvidia_multiplex import NvidiaMultiplex
+        _nvidia_mx = NvidiaMultiplex(api_key=settings.NVIDIA_API_KEY)
+    return _nvidia_mx
+
+
+def _get_openai():
+    global _openai_client
+    if _openai_client is None:
+        from openai import OpenAI
+        _openai_client = OpenAI(
             api_key=settings.AI_API_KEY,
             base_url=settings.AI_BASE_URL,
             default_headers={
-                # OpenRouter uses these for leaderboard / abuse tracking
                 "HTTP-Referer": settings.AI_SITE_URL,
                 "X-Title": settings.AI_SITE_NAME,
             },
         )
-    return _client
+    return _openai_client
 
 
 def call_claude(prompt: str, max_tokens: int = 1024) -> str:
     """
-    Single AI call. Name kept as call_claude so processor.py / digest_generator.py
-    don't need to change.
+    Single AI call. Uses NVIDIA multiplex if NVIDIA_API_KEY is set,
+    otherwise falls back to OpenAI-compatible provider (Groq, Gemini, etc.).
+    Name kept as call_claude so processor.py / digest_generator.py don't need to change.
     """
-    client = get_client()
+    if settings.NVIDIA_API_KEY:
+        mx = _get_nvidia()
+        text, _model = mx.chat(
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=max_tokens,
+        )
+        return text
+
+    # Fallback: Groq / Gemini / OpenRouter
+    from openai import RateLimitError
+    client = _get_openai()
     try:
         response = client.chat.completions.create(
             model=settings.AI_MODEL,
@@ -57,10 +75,9 @@ def call_claude(prompt: str, max_tokens: int = 1024) -> str:
 
 
 def stream_claude(prompt: str, max_tokens: int = 1024) -> Generator[str, None, None]:
-    """
-    Stream AI response token-by-token. Yields each token as it arrives.
-    """
-    client = get_client()
+    """Stream AI response token-by-token. NVIDIA multiplex does not support streaming yet."""
+    from openai import RateLimitError
+    client = _get_openai()
     try:
         stream = client.chat.completions.create(
             model=settings.AI_MODEL,
