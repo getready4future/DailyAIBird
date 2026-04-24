@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { formatDistanceToNow } from 'date-fns'
 import { fetchAdminSources, updateSource, triggerScrape, testSource, importCatalogSource, type AdminSource, type SourceTestArticle } from '../api/admin'
 import Spinner from '../components/ui/Spinner'
+import PipelinePanel from '../components/admin/PipelinePanel'
 
 // ── Test result panel ─────────────────────────────────────────────────────────
 
@@ -80,7 +81,7 @@ function TestPanel({ articles, onClose }: { articles: SourceTestArticle[]; onClo
 function SourceCard({ source, onSave, onScrape }: {
   source: AdminSource
   onSave: (id: number, data: Partial<AdminSource>) => void
-  onScrape: (slug: string) => void
+  onScrape: (slug: string, name: string) => void
 }) {
   const [editing, setEditing] = useState(false)
   const [maxArticles, setMaxArticles] = useState(source.max_articles?.toString() ?? '')
@@ -241,8 +242,8 @@ function SourceCard({ source, onSave, onScrape }: {
         </button>
 
         <button
-          onClick={() => onScrape(source.slug)}
-          className="rounded-lg border border-gray-700 px-3 py-1.5 text-xs font-semibold text-gray-400 hover:border-gray-500 hover:text-white transition"
+          onClick={() => onScrape(source.slug, source.name)}
+          className="rounded-lg border border-gray-700 px-3 py-1.5 text-xs font-semibold text-gray-400 hover:border-brand-600 hover:text-brand-400 transition"
         >
           ↓ Scrape Now
         </button>
@@ -401,8 +402,10 @@ function AddSourceForm({ onClose }: { onClose: () => void }) {
 
 export default function AdminSources() {
   const qc = useQueryClient()
-  const [scraping, setScraping] = useState<string | null>(null)
-  const [showAdd, setShowAdd]   = useState(false)
+  const [showAdd, setShowAdd] = useState(false)
+  const [pipeline, setPipeline] = useState<{ open: boolean; label: string; key: number }>({
+    open: false, label: '', key: 0,
+  })
 
   const { data: sources = [], isLoading } = useQuery({
     queryKey: ['admin-sources'],
@@ -414,13 +417,9 @@ export default function AdminSources() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['admin-sources'] }),
   })
 
-  async function handleScrape(slug: string) {
-    setScraping(slug)
-    try {
-      await triggerScrape(slug)
-    } finally {
-      setScraping(null)
-    }
+  async function handleScrape(slug: string, name: string) {
+    await triggerScrape(slug)
+    setPipeline((p) => ({ open: true, label: name, key: p.key + 1 }))
   }
 
   const activeCount = sources.filter((s) => s.is_active).length
@@ -467,11 +466,12 @@ export default function AdminSources() {
         </div>
       )}
 
-      {scraping && (
-        <div className="fixed bottom-6 right-6 rounded-xl bg-brand-600 px-5 py-3 text-sm font-semibold text-white shadow-lg">
-          Scraping {scraping}…
-        </div>
-      )}
+      <PipelinePanel
+        open={pipeline.open}
+        sourceLabel={pipeline.label}
+        sessionKey={pipeline.key}
+        onClose={() => setPipeline((p) => ({ ...p, open: false }))}
+      />
     </div>
   )
 }
