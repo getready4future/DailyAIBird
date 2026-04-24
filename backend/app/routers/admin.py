@@ -17,19 +17,19 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.database import get_db
 from app.models.article import Article
+from app.models.admin_user import AdminUser
 from app.models.daily_digest import DailyDigest
 from app.models.scrape_run import ScrapeRun
 from app.models.source import Source
 from app.schemas.article import ArticleAdminOut, ApproveRequest, RejectRequest
 from app.schemas.digest import DigestOut
 from app.schemas.source import SourceAdminOut, SourceUpdate
+from app.auth import hash_password, verify_password
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
 _api_key_header = APIKeyHeader(name="X-Admin-Token", auto_error=False)
 
-ADMIN_USERNAME = "admin"
-ADMIN_PASSWORD = "Burak"
 SCHEDULE_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "data", "schedule.json")
 
 
@@ -46,10 +46,98 @@ class LoginRequest(BaseModel):
 
 
 @router.post("/login")
-def admin_login(body: LoginRequest):
-    if body.username != ADMIN_USERNAME or body.password != ADMIN_PASSWORD:
+def admin_login(body: LoginRequest, db: Session = Depends(get_db)):
+    user = db.query(AdminUser).filter(
+        AdminUser.username == body.username,
+        AdminUser.is_active.is_(True),
+    ).first()
+    if not user or not verify_password(body.password, user.password_hash):
         raise HTTPException(status_code=401, detail="Invalid credentials")
-    return {"token": settings.ADMIN_SECRET, "username": body.username}
+    user.last_login_at = datetime.utcnow()
+    db.commit()
+    return {"token": settings.ADMIN_SECRET, "username": user.username, "role": user.role, "display_name": user.display_name}
+
+
+# ── User Management ───────────────────────────────────────────────────────────
+
+class UserCreate(BaseModel):
+    username: str
+    password: str
+    display_name: str = ""
+    role: str = "editor"
+
+
+class UserUpdate(BaseModel):
+    display_name: str | None = None
+    role: str | None = None
+    is_active: bool | None = None
+    password: str | None = None
+
+
+@router.get("/users", dependencies=[Depends(_check_token)])
+def list_users(db: Session = Depends(get_db)):
+    users = db.query(AdminUser).order_by(AdminUser.created_at).all()
+    return [
+        {
+            "id": u.id,
+            "username": u.username,
+            "display_name": u.display_name,
+            "role": u.role,
+            "is_active": u.is_active,
+            "created_at": u.created_at,
+            "last_login_at": u.last_login_at,
+        }
+        for u in users
+    ]
+
+
+@router.post("/users", dependencies=[Depends(_check_token)])
+def create_user(body: UserCreate, db: Session = Depends(get_db)):
+    if db.query(AdminUser).filter(AdminUser.username == body.username).first():
+        raise HTTPException(status_code=409, detail="Username already exists")
+    user = AdminUser(
+        username=body.username,
+        password_hash=hash_password(body.password),
+        display_name=body.display_name or body.username,
+        role=body.role,
+        is_active=True,
+        created_at=datetime.utcnow(),
+    )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return {"id": user.id, "username": user.username, "role": user.role}
+
+
+@router.patch("/users/{user_id}", dependencies=[Depends(_check_token)])
+def update_user(user_id: int, body: UserUpdate, db: Session = Depends(get_db)):
+    user = db.query(AdminUser).filter(AdminUser.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    if body.display_name is not None:
+        user.display_name = body.display_name
+    if body.role is not None:
+        user.role = body.role
+    if body.is_active is not None:
+        user.is_active = body.is_active
+    if body.password:
+        user.password_hash = hash_password(body.password)
+    db.commit()
+    return {"id": user.id, "username": user.username, "role": user.role, "is_active": user.is_active}
+
+
+@router.delete("/users/{user_id}", dependencies=[Depends(_check_token)])
+def delete_user(user_id: int, db: Session = Depends(get_db)):
+    user = db.query(AdminUser).filter(AdminUser.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    # Prevent deleting the last admin
+    admin_count = db.query(AdminUser).filter(AdminUser.role == "admin", AdminUser.is_active.is_(True)).count()
+    if user.role == "admin" and admin_count <= 1:
+        raise HTTPException(status_code=400, detail="Cannot delete the last admin user")
+    db.delete(user)
+    db.commit()
+    return {"deleted": user_id}
 
 
 # ── Source Management ─────────────────────────────────────────────────────────

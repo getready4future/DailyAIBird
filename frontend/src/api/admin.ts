@@ -97,6 +97,37 @@ export const fetchModels = async (): Promise<ModelStatus[]> => {
   return data
 }
 
+// ── Users ─────────────────────────────────────────────────────────────────────
+
+export interface AdminUserRecord {
+  id: number
+  username: string
+  display_name: string | null
+  role: 'admin' | 'editor'
+  is_active: boolean
+  created_at: string
+  last_login_at: string | null
+}
+
+export const fetchUsers = async (): Promise<AdminUserRecord[]> => {
+  const { data } = await adminApi.get<AdminUserRecord[]>('/admin/users')
+  return data
+}
+
+export const createUser = async (body: { username: string; password: string; display_name?: string; role?: string }): Promise<{ id: number; username: string }> => {
+  const { data } = await adminApi.post('/admin/users', body)
+  return data
+}
+
+export const updateUser = async (id: number, body: { display_name?: string; role?: string; is_active?: boolean; password?: string }): Promise<AdminUserRecord> => {
+  const { data } = await adminApi.patch<AdminUserRecord>(`/admin/users/${id}`, body)
+  return data
+}
+
+export const deleteUser = async (id: number): Promise<void> => {
+  await adminApi.delete(`/admin/users/${id}`)
+}
+
 // ── Scheduler ─────────────────────────────────────────────────────────────────
 
 export interface SchedulerConfig {

@@ -15,11 +15,38 @@ logger = logging.getLogger(__name__)
 scheduler = None  # set during lifespan, referenced by admin router
 
 
+def _seed_admin_user() -> None:
+    """Create the default admin user if no users exist."""
+    from app.database import SessionLocal
+    from app.models.admin_user import AdminUser
+    from app.auth import hash_password
+    from datetime import datetime
+
+    db = SessionLocal()
+    try:
+        if db.query(AdminUser).count() == 0:
+            admin = AdminUser(
+                username="admin",
+                password_hash=hash_password("Burak"),
+                display_name="Admin",
+                role="admin",
+                is_active=True,
+                created_at=datetime.utcnow(),
+            )
+            db.add(admin)
+            db.commit()
+            logger.info("Default admin user created (admin / Burak)")
+    finally:
+        db.close()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Create tables if they don't exist yet (idempotent, Alembic handles migrations)
     Base.metadata.create_all(bind=engine)
     logger.info("Database tables ready")
+
+    _seed_admin_user()
 
     # Start scheduler
     from app.scheduler.jobs import create_scheduler

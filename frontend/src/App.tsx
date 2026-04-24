@@ -12,6 +12,7 @@ import AdminDigests from './pages/AdminDigests'
 import AdminSources from './pages/AdminSources'
 import AdminModels from './pages/AdminModels'
 import AdminScheduler from './pages/AdminScheduler'
+import AdminUsers from './pages/AdminUsers'
 
 export default function App() {
   return (
@@ -36,6 +37,7 @@ export default function App() {
         <Route path="/admin/sources" element={<AdminSources />} />
         <Route path="/admin/models" element={<AdminModels />} />
         <Route path="/admin/scheduler" element={<AdminScheduler />} />
+        <Route path="/admin/users" element={<AdminUsers />} />
       </Route>
     </Routes>
   )
