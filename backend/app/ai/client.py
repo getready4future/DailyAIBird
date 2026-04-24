@@ -18,6 +18,9 @@ _openrouter_model_override: str | None = None   # runtime override (admin panel)
 # Runtime provider selection: "openrouter" | "nvidia" | "generic"
 _active_provider: str = ""
 
+# Backward-compat export used by digest_generator.py to log the model name
+MODEL = settings.OPENROUTER_MODEL if settings.OPENROUTER_API_KEY else settings.AI_MODEL
+
 
 def _default_provider() -> str:
     if settings.OPENROUTER_API_KEY:
