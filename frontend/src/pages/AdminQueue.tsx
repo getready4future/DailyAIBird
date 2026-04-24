@@ -191,19 +191,30 @@ function QualityBar({ score }: { score: number | null }) {
 
 function ArticleReviewCard({ article, onApprove, onReject }: {
   article: ArticleAdmin
-  onApprove: (id: number) => void
-  onReject: (id: number) => void
+  onApprove?: (id: number) => void
+  onReject?: (id: number) => void
 }) {
   const [showContent, setShowContent] = useState(false)
   const timeAgo = article.published_at
     ? formatDistanceToNow(new Date(article.published_at), { addSuffix: true })
     : '—'
 
+  const statusBadge = article.status === 'published'
+    ? <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-medium text-emerald-700">✓ Yayınlandı</span>
+    : article.status === 'rejected'
+    ? <span className="rounded-full bg-red-100 px-2.5 py-0.5 text-xs font-medium text-red-700">✗ Reddedildi</span>
+    : null
+
   return (
-    <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+    <div className={`rounded-xl border bg-white p-5 shadow-sm ${
+      article.status === 'published' ? 'border-emerald-200'
+      : article.status === 'rejected' ? 'border-red-200'
+      : 'border-gray-200'
+    }`}>
       <div className="mb-2 flex flex-wrap items-center gap-2 text-xs text-gray-500">
         <span className="font-semibold text-gray-700">{article.source.name}</span>
         <span>· {timeAgo}</span>
+        {statusBadge}
         <span className="ml-auto">ID #{article.id}</span>
       </div>
 
@@ -212,6 +223,16 @@ function ArticleReviewCard({ article, onApprove, onReject }: {
           {article.title}
         </a>
       </h3>
+
+      {article.status === 'published' && article.approved_at && (
+        <p className="mb-2 text-xs text-emerald-600">
+          Onaylandı: {formatDistanceToNow(new Date(article.approved_at), { addSuffix: true })}
+          {article.approved_by ? ` · ${article.approved_by}` : ''}
+        </p>
+      )}
+      {article.status === 'rejected' && article.rejection_reason && (
+        <p className="mb-2 text-xs text-red-500">Sebep: {article.rejection_reason}</p>
+      )}
 
       <div className="mb-3 space-y-1.5">
         <QualityBar score={article.quality_score} />
@@ -251,32 +272,47 @@ function ArticleReviewCard({ article, onApprove, onReject }: {
         </div>
       )}
 
-      <div className="flex gap-3">
-        <button
-          onClick={() => onApprove(article.id)}
-          className="flex-1 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 transition"
-        >
-          Approve & Publish
-        </button>
-        <button
-          onClick={() => onReject(article.id)}
-          className="flex-1 rounded-lg border border-red-300 px-4 py-2 text-sm font-semibold text-red-600 hover:bg-red-50 transition"
-        >
-          Reject
-        </button>
-      </div>
+      {(onApprove || onReject) && (
+        <div className="flex gap-3">
+          {onApprove && (
+            <button
+              onClick={() => onApprove(article.id)}
+              className="flex-1 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 transition"
+            >
+              {article.status === 'rejected' ? 'Geri Al & Yayınla' : 'Onayla & Yayınla'}
+            </button>
+          )}
+          {onReject && (
+            <button
+              onClick={() => onReject(article.id)}
+              className="flex-1 rounded-lg border border-red-300 px-4 py-2 text-sm font-semibold text-red-600 hover:bg-red-50 transition"
+            >
+              Reddet
+            </button>
+          )}
+        </div>
+      )}
     </div>
   )
 }
 
+type TabStatus = 'pending_human' | 'published' | 'rejected'
+
+const TABS: { key: TabStatus; label: string }[] = [
+  { key: 'pending_human', label: 'Bekliyor' },
+  { key: 'published',     label: 'Yayınlandı' },
+  { key: 'rejected',      label: 'Reddedildi' },
+]
+
 export default function AdminQueue() {
   const qc = useQueryClient()
   const [page, setPage] = useState(1)
+  const [tab, setTab] = useState<TabStatus>('pending_human')
   const [showPanel, setShowPanel] = useState(false)
 
   const { data: articles = [], isLoading } = useQuery({
-    queryKey: ['admin-queue', page],
-    queryFn: () => fetchQueue(page),
+    queryKey: ['admin-queue', tab, page],
+    queryFn: () => fetchQueue(page, tab),
   })
 
   const approveMut = useMutation({
@@ -296,6 +332,11 @@ export default function AdminQueue() {
 
   const digestMut = useMutation({ mutationFn: triggerDigest })
 
+  function switchTab(t: TabStatus) {
+    setTab(t)
+    setPage(1)
+  }
+
   return (
     <div>
       {showPanel && (
@@ -308,13 +349,8 @@ export default function AdminQueue() {
         </>
       )}
 
-      <div className="mb-6 flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Moderation Queue</h1>
-          <p className="mt-1 text-sm text-gray-500">
-            Review AI-analyzed articles before publishing. {articles.length} pending.
-          </p>
-        </div>
+      <div className="mb-4 flex items-center justify-between">
+        <h1 className="text-2xl font-bold text-gray-900">Moderation Queue</h1>
         <div className="flex gap-3">
           <button
             onClick={() => digestMut.mutate()}
@@ -333,6 +369,23 @@ export default function AdminQueue() {
         </div>
       </div>
 
+      {/* Tabs */}
+      <div className="mb-6 flex gap-1 border-b border-gray-200">
+        {TABS.map((t) => (
+          <button
+            key={t.key}
+            onClick={() => switchTab(t.key)}
+            className={`px-4 py-2 text-sm font-medium transition border-b-2 -mb-px ${
+              tab === t.key
+                ? 'border-gray-900 text-gray-900'
+                : 'border-transparent text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
       {digestMut.isSuccess && (
         <div className="mb-4 rounded-lg bg-blue-50 border border-blue-200 p-3 text-sm text-blue-700">
           Digest generation triggered. Go to <a href="/admin/digests" className="underline">Digest Review</a> to approve.
@@ -342,15 +395,19 @@ export default function AdminQueue() {
       {isLoading ? (
         <div className="flex justify-center py-20"><Spinner size="lg" /></div>
       ) : articles.length === 0 ? (
-        <EmptyState message="Queue is empty — no articles pending review." />
+        <EmptyState message={
+          tab === 'pending_human' ? 'Queue is empty — no articles pending review.'
+          : tab === 'published' ? 'Henüz yayınlanmış makale yok.'
+          : 'Henüz reddedilmiş makale yok.'
+        } />
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {articles.map((a) => (
             <ArticleReviewCard
               key={a.id}
               article={a}
-              onApprove={(id) => approveMut.mutate(id)}
-              onReject={(id) => rejectMut.mutate(id)}
+              onApprove={tab === 'pending_human' || tab === 'rejected' ? (id) => approveMut.mutate(id) : undefined}
+              onReject={tab === 'pending_human' ? (id) => rejectMut.mutate(id) : undefined}
             />
           ))}
         </div>

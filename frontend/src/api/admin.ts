@@ -1,8 +1,8 @@
 import { adminApi } from './client'
 import type { ArticleAdmin, DailyDigest } from '../types'
 
-export const fetchQueue = async (page = 1): Promise<ArticleAdmin[]> => {
-  const { data } = await adminApi.get<ArticleAdmin[]>('/admin/queue', { params: { page, per_page: 20 } })
+export const fetchQueue = async (page = 1, status = 'pending_human'): Promise<ArticleAdmin[]> => {
+  const { data } = await adminApi.get<ArticleAdmin[]>('/admin/queue', { params: { page, per_page: 20, status } })
   return data
 }
 

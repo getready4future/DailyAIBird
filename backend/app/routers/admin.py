@@ -35,13 +35,16 @@ def _check_token(token: str = Security(_api_key_header)):
 def get_moderation_queue(
     page: int = Query(1, ge=1),
     per_page: int = Query(20, ge=1, le=100),
+    status: str = Query("pending_human"),
     db: Session = Depends(get_db),
 ):
-    """Articles awaiting human review, sorted by quality score descending."""
+    order = Article.approved_at.desc() if status == "published" else (
+        Article.approved_at.desc() if status == "rejected" else Article.quality_score.desc()
+    )
     return (
         db.query(Article)
-        .filter(Article.status == "pending_human")
-        .order_by(Article.quality_score.desc())
+        .filter(Article.status == status)
+        .order_by(order)
         .offset((page - 1) * per_page)
         .limit(per_page)
         .all()
