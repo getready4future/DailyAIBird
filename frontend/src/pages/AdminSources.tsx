@@ -501,13 +501,14 @@ function GoogleNewsTab({ gNewsSources, onSave, onScrape, selectedIds, onToggleSe
   const [keywords, setKeywords] = useState('')
   const [lang, setLang] = useState('en-US')
   const [region, setRegion] = useState('US')
-  const [adding, setAdding] = useState(false)
+  const [timeFilter, setTimeFilter] = useState('')
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
 
+  const fullQuery = keywords.trim() + (timeFilter ? ` when:${timeFilter}` : '')
   const slug = 'google-news-' + keywords.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40)
   const feedUrl = keywords.trim()
-    ? `https://news.google.com/rss/search?q=${encodeURIComponent(keywords.trim())}&hl=${lang}&gl=${region}&ceid=${region}:${lang.split('-')[0]}`
+    ? `https://news.google.com/rss/search?q=${encodeURIComponent(fullQuery)}&hl=${lang}&gl=${region}&ceid=${region}:${lang.split('-')[0]}`
     : ''
 
   const createMut = useMutation({
@@ -524,7 +525,6 @@ function GoogleNewsTab({ gNewsSources, onSave, onScrape, selectedIds, onToggleSe
       setKeywords('')
       setSuccess('Kaynak eklendi!')
       setTimeout(() => setSuccess(''), 3000)
-      setAdding(false)
     },
     onError: (err: any) => setError(err?.response?.data?.detail || 'Eklenemedi.'),
   })
@@ -546,7 +546,7 @@ function GoogleNewsTab({ gNewsSources, onSave, onScrape, selectedIds, onToggleSe
             />
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-3 gap-3">
             <div>
               <label className="mb-1 block text-[10px] font-bold tracking-widest text-gray-500 uppercase">Dil</label>
               <select
@@ -571,6 +571,20 @@ function GoogleNewsTab({ gNewsSources, onSave, onScrape, selectedIds, onToggleSe
                 <option value="TR">Türkiye</option>
                 <option value="GB">United Kingdom</option>
                 <option value="DE">Germany</option>
+              </select>
+            </div>
+            <div>
+              <label className="mb-1 block text-[10px] font-bold tracking-widest text-gray-500 uppercase">Zaman</label>
+              <select
+                value={timeFilter}
+                onChange={(e) => setTimeFilter(e.target.value)}
+                className="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-white focus:border-blue-500 focus:outline-none"
+              >
+                <option value="">Tümü</option>
+                <option value="1h">Son 1 saat</option>
+                <option value="24h">Son 24 saat</option>
+                <option value="7d">Son 7 gün</option>
+                <option value="30d">Son 30 gün</option>
               </select>
             </div>
           </div>
