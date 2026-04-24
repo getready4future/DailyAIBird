@@ -26,6 +26,7 @@ class ArticleOut(BaseModel):
     image_url: Optional[str]
     source: SourceOut
     created_at: datetime
+    approved_at: Optional[datetime]
 
     @field_validator("tags", "flags", mode="before")
     @classmethod

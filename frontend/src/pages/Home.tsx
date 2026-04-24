@@ -23,20 +23,25 @@ export default function Home() {
 
   return (
     <div>
-      <div className="mb-5 flex items-end justify-between gap-4">
+      {/* Page header */}
+      <div className="mb-6 flex items-end justify-between gap-4 border-b border-gray-100 pb-5">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Latest AI News</h1>
-          <p className="mt-0.5 text-sm text-gray-400">Curated & rewritten by AI · approved by humans</p>
+          <p className="mb-1 text-[11px] font-bold tracking-widest text-brand-600 uppercase">AI News</p>
+          <h1 className="text-3xl font-extrabold tracking-tight text-gray-950">Today's Feed</h1>
         </div>
-        {data && <span className="shrink-0 text-xs text-gray-400">{data.total} stories</span>}
+        {data && (
+          <span className="shrink-0 rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-gray-500">
+            {data.total} stories
+          </span>
+        )}
       </div>
 
-      <div className="mb-6">
+      <div className="mb-7">
         <ArticleFilters />
       </div>
 
       {isLoading ? (
-        <div className="flex justify-center py-20"><Spinner size="lg" /></div>
+        <div className="flex justify-center py-24"><Spinner size="lg" /></div>
       ) : error ? (
         <p className="py-10 text-center text-red-500">Failed to load articles.</p>
       ) : (
@@ -44,7 +49,7 @@ export default function Home() {
           <ArticleGrid articles={data?.items ?? []} />
 
           {showPagination && (
-            <div className="mt-10 flex items-center justify-center gap-3">
+            <div className="mt-12 flex items-center justify-center gap-3">
               <button
                 disabled={page <= 1}
                 onClick={() => setPage(page - 1)}
@@ -52,7 +57,9 @@ export default function Home() {
               >
                 ← Previous
               </button>
-              <span className="text-sm text-gray-400">Page {page}</span>
+              <span className="rounded-full bg-gray-100 px-4 py-2 text-sm font-semibold text-gray-700">
+                {page}
+              </span>
               <button
                 disabled={!data.has_next}
                 onClick={() => setPage(page + 1)}

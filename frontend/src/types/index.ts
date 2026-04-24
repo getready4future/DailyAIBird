@@ -28,6 +28,7 @@ export interface Article {
   image_url: string | null
   source: Source
   created_at: string
+  approved_at: string | null
 }
 
 export interface ArticleAdmin extends Article {
