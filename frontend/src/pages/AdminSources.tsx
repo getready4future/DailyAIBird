@@ -488,9 +488,138 @@ function AddSourceForm({ onClose }: { onClose: () => void }) {
   )
 }
 
+// ── Google News Tab ───────────────────────────────────────────────────────────
+
+function GoogleNewsTab({ gNewsSources, onSave, onScrape, selectedIds, onToggleSelect }: {
+  gNewsSources: AdminSource[]
+  onSave: (id: number, data: Partial<AdminSource>) => void
+  onScrape: (slug: string, name: string) => void
+  selectedIds: Set<number>
+  onToggleSelect: (id: number) => void
+}) {
+  const qc = useQueryClient()
+  const [keywords, setKeywords] = useState('')
+  const [lang, setLang] = useState('en-US')
+  const [region, setRegion] = useState('US')
+  const [adding, setAdding] = useState(false)
+  const [error, setError] = useState('')
+  const [success, setSuccess] = useState('')
+
+  const slug = 'google-news-' + keywords.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40)
+  const feedUrl = keywords.trim()
+    ? `https://news.google.com/rss/search?q=${encodeURIComponent(keywords.trim())}&hl=${lang}&gl=${region}&ceid=${region}:${lang.split('-')[0]}`
+    : ''
+
+  const createMut = useMutation({
+    mutationFn: () => importCatalogSource({
+      name: `Google News: ${keywords.trim()}`,
+      slug,
+      url: 'https://news.google.com',
+      feed_url: feedUrl,
+      scraper_type: 'gnews',
+      category: 'news',
+    }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['admin-sources'] })
+      setKeywords('')
+      setSuccess('Kaynak eklendi!')
+      setTimeout(() => setSuccess(''), 3000)
+      setAdding(false)
+    },
+    onError: (err: any) => setError(err?.response?.data?.detail || 'Eklenemedi.'),
+  })
+
+  return (
+    <div className="space-y-5">
+      {/* Add form */}
+      <div className="rounded-2xl border border-blue-900/40 bg-gray-900 p-5">
+        <p className="mb-4 text-[10px] font-bold tracking-widest text-blue-400 uppercase">Yeni Google News Kaynağı</p>
+
+        <div className="space-y-3">
+          <div>
+            <label className="mb-1 block text-[10px] font-bold tracking-widest text-gray-500 uppercase">Keywords *</label>
+            <input
+              value={keywords}
+              onChange={(e) => { setKeywords(e.target.value); setError('') }}
+              placeholder='örn: "artificial intelligence" OR LLM OR GPT'
+              className="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-white placeholder-gray-600 focus:border-blue-500 focus:outline-none"
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="mb-1 block text-[10px] font-bold tracking-widest text-gray-500 uppercase">Dil</label>
+              <select
+                value={lang}
+                onChange={(e) => setLang(e.target.value)}
+                className="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-white focus:border-blue-500 focus:outline-none"
+              >
+                <option value="en-US">English (US)</option>
+                <option value="tr">Türkçe</option>
+                <option value="de">Deutsch</option>
+                <option value="fr">Français</option>
+              </select>
+            </div>
+            <div>
+              <label className="mb-1 block text-[10px] font-bold tracking-widest text-gray-500 uppercase">Bölge</label>
+              <select
+                value={region}
+                onChange={(e) => setRegion(e.target.value)}
+                className="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-white focus:border-blue-500 focus:outline-none"
+              >
+                <option value="US">United States</option>
+                <option value="TR">Türkiye</option>
+                <option value="GB">United Kingdom</option>
+                <option value="DE">Germany</option>
+              </select>
+            </div>
+          </div>
+
+          {feedUrl && (
+            <div className="rounded-lg border border-gray-800 bg-gray-950 px-3 py-2">
+              <p className="text-[10px] font-bold tracking-widest text-gray-500 uppercase mb-1">RSS Feed URL</p>
+              <p className="text-[11px] text-gray-400 break-all font-mono">{feedUrl}</p>
+            </div>
+          )}
+
+          {error && <p className="text-xs text-red-400">{error}</p>}
+          {success && <p className="text-xs text-emerald-400">{success}</p>}
+
+          <button
+            onClick={() => createMut.mutate()}
+            disabled={!keywords.trim() || createMut.isPending}
+            className="rounded-lg bg-blue-600 px-4 py-2 text-xs font-bold text-white hover:bg-blue-500 disabled:opacity-40 transition"
+          >
+            {createMut.isPending ? 'Ekleniyor…' : '+ Kaynak Ekle'}
+          </button>
+        </div>
+      </div>
+
+      {/* Existing gnews sources */}
+      {gNewsSources.length > 0 && (
+        <div>
+          <p className="mb-3 text-[10px] font-bold tracking-widest text-gray-500 uppercase">Mevcut Google News Kaynakları ({gNewsSources.length})</p>
+          <div className="grid gap-4 lg:grid-cols-2">
+            {gNewsSources.map((source) => (
+              <SourceCard
+                key={source.id}
+                source={source}
+                selected={selectedIds.has(source.id)}
+                onToggleSelect={onToggleSelect}
+                onSave={onSave}
+                onScrape={onScrape}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 
-type TabId = 'active' | 'paused'
+type TabId = 'active' | 'paused' | 'gnews'
 
 export default function AdminSources() {
   const qc = useQueryClient()
@@ -511,8 +640,9 @@ export default function AdminSources() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['admin-sources'] }),
   })
 
-  const activeSources = sources.filter((s) => s.is_active)
-  const pausedSources = sources.filter((s) => !s.is_active)
+  const activeSources = sources.filter((s) => s.is_active && s.scraper_type !== 'gnews')
+  const pausedSources = sources.filter((s) => !s.is_active && s.scraper_type !== 'gnews')
+  const gNewsSources  = sources.filter((s) => s.scraper_type === 'gnews')
   const visibleSources = tab === 'active' ? activeSources : pausedSources
 
   function switchTab(next: TabId) {
@@ -618,10 +748,26 @@ export default function AdminSources() {
             {pausedSources.length}
           </span>
         </button>
+        <button
+          onClick={() => switchTab('gnews')}
+          className={`flex items-center gap-2 rounded-lg px-4 py-1.5 text-xs font-bold transition ${
+            tab === 'gnews'
+              ? 'bg-blue-900/50 text-blue-300'
+              : 'text-gray-500 hover:text-gray-300'
+          }`}
+        >
+          <span className={`h-1.5 w-1.5 rounded-full ${tab === 'gnews' ? 'bg-blue-400' : 'bg-gray-700'}`} />
+          Google News
+          <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-bold tabular-nums ${
+            tab === 'gnews' ? 'bg-blue-800/60 text-blue-300' : 'bg-gray-800 text-gray-600'
+          }`}>
+            {gNewsSources.length}
+          </span>
+        </button>
       </div>
 
-      {/* Selection toolbar */}
-      <div className="mb-4 flex flex-wrap items-center gap-3">
+      {/* Selection toolbar — hidden on gnews tab */}
+      {tab !== 'gnews' && <div className="mb-4 flex flex-wrap items-center gap-3">
         <button
           onClick={toggleSelectAll}
           className="flex items-center gap-2 rounded-lg border border-gray-700 bg-gray-900 px-3 py-1.5 text-xs font-semibold text-gray-400 transition hover:border-gray-500 hover:text-white"
@@ -664,10 +810,18 @@ export default function AdminSources() {
             </button>
           </>
         )}
-      </div>
+      </div>}
 
       {isLoading ? (
         <div className="flex justify-center py-20"><Spinner size="lg" /></div>
+      ) : tab === 'gnews' ? (
+        <GoogleNewsTab
+          gNewsSources={gNewsSources}
+          onSave={(id, data) => updateMut.mutate({ id, data })}
+          onScrape={handleScrape}
+          selectedIds={selectedIds}
+          onToggleSelect={toggleSelect}
+        />
       ) : visibleSources.length === 0 ? (
         <div className="flex flex-col items-center gap-3 rounded-2xl border border-gray-800 bg-gray-900/50 py-16 text-center">
           <span className="text-3xl opacity-20">
