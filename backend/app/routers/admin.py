@@ -188,7 +188,10 @@ def update_source(source_id: int, body: SourceUpdate, db: Session = Depends(get_
     if not source:
         raise HTTPException(status_code=404, detail="Source not found")
     for field, value in body.model_dump(exclude_unset=True).items():
-        setattr(source, field, value)
+        if field == "scrape_config" and isinstance(value, dict):
+            setattr(source, field, json.dumps(value))
+        else:
+            setattr(source, field, value)
     db.commit()
     db.refresh(source)
     return source
@@ -296,6 +299,34 @@ def set_ai_provider(body: dict):
     from app.ai.client import set_active_provider
     set_active_provider(provider)
     return {"active": provider}
+
+
+# ── Global App Config ─────────────────────────────────────────────────────────
+
+@router.get("/config", dependencies=[Depends(_check_token)])
+def get_app_config():
+    from app.config_store import load, get_max_articles_per_source
+    cfg = load()
+    return {
+        "max_articles_per_source": get_max_articles_per_source(),
+        **{k: v for k, v in cfg.items() if k != "max_articles_per_source"},
+    }
+
+
+@router.patch("/config", dependencies=[Depends(_check_token)])
+def update_app_config(body: dict = Body(...)):
+    from app.config_store import load, save
+    allowed = {"max_articles_per_source"}
+    cfg = load()
+    for key in allowed:
+        if key in body:
+            val = body[key]
+            if key == "max_articles_per_source":
+                val = max(1, int(val))
+            cfg[key] = val
+    save(cfg)
+    from app.config_store import get_max_articles_per_source
+    return {"max_articles_per_source": get_max_articles_per_source()}
 
 
 # ── Scheduler Config ──────────────────────────────────────────────────────────

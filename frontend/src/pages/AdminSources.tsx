@@ -93,12 +93,31 @@ function SourceCard({ source, selected, onToggleSelect, onSave, onScrape }: {
   const [testResult, setTestResult] = useState<SourceTestArticle[] | null>(null)
   const [testError, setTestError] = useState('')
 
+  // Twitter-specific scrape_config state
+  const isTwitter = source.scraper_type === 'twitter'
+  const twitterCfg = source.scrape_config as { accounts?: string[]; min_likes?: number } | null
+  const [twitterAccounts, setTwitterAccounts] = useState<string[]>(twitterCfg?.accounts ?? [])
+  const [twitterMinLikes, setTwitterMinLikes] = useState<number>(twitterCfg?.min_likes ?? 100)
+  const [twitterInput, setTwitterInput] = useState('')
+
+  function addTwitterAccount() {
+    const handle = twitterInput.replace(/^@/, '').trim()
+    if (handle && !twitterAccounts.includes(handle)) {
+      setTwitterAccounts((prev) => [...prev, handle])
+    }
+    setTwitterInput('')
+  }
+
   function handleSave() {
-    onSave(source.id, {
+    const update: Partial<AdminSource> = {
       max_articles: maxArticles ? parseInt(maxArticles) : null,
       context_prompt: contextPrompt || null,
       cron_schedule: cronSchedule || null,
-    })
+    }
+    if (isTwitter) {
+      update.scrape_config = { accounts: twitterAccounts, min_likes: twitterMinLikes }
+    }
+    onSave(source.id, update)
     setEditing(false)
   }
 
@@ -174,6 +193,19 @@ function SourceCard({ source, selected, onToggleSelect, onSave, onScrape }: {
         </div>
       )}
 
+      {/* Twitter account chain preview */}
+      {isTwitter && !editing && twitterAccounts.length > 0 && (
+        <div className="px-5 py-3 border-b border-gray-800/50">
+          <p className="text-[10px] font-semibold tracking-widest text-gray-500 uppercase mb-1.5">Account Chain</p>
+          <div className="flex flex-wrap gap-1">
+            {twitterAccounts.map((h) => (
+              <span key={h} className="rounded-full bg-gray-800 border border-gray-700 px-2 py-0.5 text-[10px] text-gray-400">@{h}</span>
+            ))}
+            <span className="text-[10px] text-gray-600 self-center">· min {twitterMinLikes} likes</span>
+          </div>
+        </div>
+      )}
+
       {/* Edit form */}
       {editing && (
         <div className="px-5 py-4 space-y-4 border-b border-gray-800">
@@ -208,6 +240,49 @@ function SourceCard({ source, selected, onToggleSelect, onSave, onScrape }: {
             />
             <p className="mt-1 text-[10px] text-gray-600">Format: minute hour day month weekday</p>
           </div>
+
+          {isTwitter && (
+            <div className="sm:col-span-2 border-t border-gray-800 pt-4">
+              <p className="mb-2 text-[10px] font-bold tracking-widest text-gray-500 uppercase">X Account Chain</p>
+              <div className="mb-2 flex flex-wrap gap-1.5 min-h-[32px]">
+                {twitterAccounts.map((handle) => (
+                  <span key={handle} className="flex items-center gap-1 rounded-full border border-gray-700 bg-gray-800 pl-2.5 pr-1 py-1 text-[11px] text-gray-300">
+                    @{handle}
+                    <button
+                      onClick={() => setTwitterAccounts((p) => p.filter((a) => a !== handle))}
+                      className="flex h-4 w-4 items-center justify-center rounded-full text-gray-600 hover:bg-gray-700 hover:text-white text-[10px] transition"
+                    >✕</button>
+                  </span>
+                ))}
+                {twitterAccounts.length === 0 && <span className="text-[11px] text-gray-700 italic">No accounts</span>}
+              </div>
+              <div className="flex gap-2 mb-3">
+                <input
+                  value={twitterInput}
+                  onChange={(e) => setTwitterInput(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), addTwitterAccount())}
+                  placeholder="@handle"
+                  className="flex-1 rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-xs text-white placeholder-gray-600 focus:border-brand-500 focus:outline-none"
+                />
+                <button
+                  onClick={addTwitterAccount}
+                  disabled={!twitterInput.trim()}
+                  className="rounded-lg border border-gray-700 px-3 py-2 text-xs font-semibold text-gray-400 hover:text-white hover:border-gray-500 disabled:opacity-40 transition"
+                >
+                  + Add
+                </button>
+              </div>
+              <div className="flex items-center gap-3">
+                <label className="text-[10px] font-bold tracking-widest text-gray-500 uppercase shrink-0">Min Likes</label>
+                <input
+                  type="number" min="0" max="10000"
+                  value={twitterMinLikes}
+                  onChange={(e) => setTwitterMinLikes(parseInt(e.target.value) || 0)}
+                  className="w-24 rounded-lg border border-gray-700 bg-gray-800 px-3 py-1.5 text-xs text-white focus:border-brand-500 focus:outline-none"
+                />
+              </div>
+            </div>
+          )}
         </div>
       )}
 

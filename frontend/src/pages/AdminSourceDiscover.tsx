@@ -19,6 +19,142 @@ const CATEGORY_COLORS: Record<string, string> = {
   social:     'bg-gray-800 border-gray-700 text-gray-400',
 }
 
+// ── X / Twitter source card ───────────────────────────────────────────────────
+
+function XSourceCard({ source, onAdd }: { source: CatalogSource; onAdd: (s: CatalogSource, cfg: Record<string, unknown>) => void }) {
+  const defaultAccounts = (source.scrape_config?.accounts as string[] | undefined) ?? []
+  const [accounts, setAccounts] = useState<string[]>(defaultAccounts)
+  const [inputVal, setInputVal] = useState('')
+  const [minLikes, setMinLikes] = useState<number>((source.scrape_config?.min_likes as number | undefined) ?? 100)
+
+  function addAccount() {
+    const handle = inputVal.replace(/^@/, '').trim()
+    if (handle && !accounts.includes(handle)) {
+      setAccounts((prev) => [...prev, handle])
+    }
+    setInputVal('')
+  }
+
+  function removeAccount(handle: string) {
+    setAccounts((prev) => prev.filter((a) => a !== handle))
+  }
+
+  return (
+    <div className="sm:col-span-2 lg:col-span-3 rounded-2xl border border-gray-700 bg-gray-900 overflow-hidden">
+      {/* Header */}
+      <div className="flex items-center gap-3 border-b border-gray-800 px-6 py-4">
+        <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-black text-lg font-bold text-white">𝕏</div>
+        <div className="flex-1">
+          <p className="text-sm font-bold text-white">{source.name}</p>
+          <p className="text-xs text-gray-500">{source.description}</p>
+        </div>
+        {source.already_added ? (
+          <span className="rounded-full border border-emerald-800/50 bg-emerald-950/30 px-3 py-1 text-[10px] font-semibold text-emerald-500">
+            ✓ Added
+          </span>
+        ) : (
+          <span className="rounded-full border border-amber-800/50 bg-amber-950/20 px-2 py-0.5 text-[10px] font-semibold text-amber-400">
+            requires: TWITTER_BEARER_TOKEN
+          </span>
+        )}
+      </div>
+
+      <div className="grid gap-6 p-6 lg:grid-cols-2">
+        {/* Setup guide */}
+        <div>
+          <p className="mb-3 text-[10px] font-bold tracking-widest text-gray-500 uppercase">Setup Guide</p>
+          <ol className="space-y-2 text-xs text-gray-400">
+            <li className="flex gap-2">
+              <span className="shrink-0 h-5 w-5 rounded-full bg-gray-800 text-[10px] font-bold text-gray-300 flex items-center justify-center">1</span>
+              Go to <a href="https://developer.twitter.com" target="_blank" rel="noopener noreferrer" className="text-brand-400 underline hover:text-brand-300">developer.twitter.com</a> and create a project + app.
+            </li>
+            <li className="flex gap-2">
+              <span className="shrink-0 h-5 w-5 rounded-full bg-gray-800 text-[10px] font-bold text-gray-300 flex items-center justify-center">2</span>
+              In your app's "Keys and Tokens" tab, generate a <strong className="text-gray-200">Bearer Token</strong>.
+            </li>
+            <li className="flex gap-2">
+              <span className="shrink-0 h-5 w-5 rounded-full bg-gray-800 text-[10px] font-bold text-gray-300 flex items-center justify-center">3</span>
+              Add to your <code className="rounded bg-gray-800 px-1.5 py-0.5 font-mono text-amber-400">.env</code> file:
+            </li>
+          </ol>
+          <div className="mt-3 rounded-lg bg-gray-950 border border-gray-800 px-4 py-3 font-mono text-xs text-emerald-400">
+            TWITTER_BEARER_TOKEN=your_token_here
+          </div>
+          <p className="mt-2 text-[10px] text-gray-600">
+            Free tier: 500k tweet reads/month. Rate limit: 15 req/15min per endpoint.
+          </p>
+        </div>
+
+        {/* Config */}
+        <div>
+          <p className="mb-3 text-[10px] font-bold tracking-widest text-gray-500 uppercase">Account Chain</p>
+          <p className="mb-3 text-[10px] text-gray-600">Tweets from these accounts will be fetched and filtered. Add handles without @.</p>
+
+          {/* Chips */}
+          <div className="mb-3 flex flex-wrap gap-1.5 min-h-[36px]">
+            {accounts.map((handle) => (
+              <span key={handle} className="flex items-center gap-1 rounded-full border border-gray-700 bg-gray-800 pl-2.5 pr-1.5 py-1 text-[11px] text-gray-300">
+                @{handle}
+                <button
+                  onClick={() => removeAccount(handle)}
+                  className="ml-0.5 flex h-4 w-4 items-center justify-center rounded-full text-gray-600 hover:bg-gray-700 hover:text-white transition text-[10px]"
+                >✕</button>
+              </span>
+            ))}
+            {accounts.length === 0 && (
+              <span className="text-[11px] text-gray-700 italic">No accounts — add at least one</span>
+            )}
+          </div>
+
+          {/* Add input */}
+          <div className="flex gap-2 mb-4">
+            <input
+              value={inputVal}
+              onChange={(e) => setInputVal(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), addAccount())}
+              placeholder="@handle or handle"
+              className="flex-1 rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-xs text-white placeholder-gray-600 focus:border-brand-500 focus:outline-none"
+            />
+            <button
+              onClick={addAccount}
+              disabled={!inputVal.trim()}
+              className="rounded-lg bg-gray-700 px-4 py-2 text-xs font-semibold text-white hover:bg-gray-600 disabled:opacity-40 transition"
+            >
+              + Add
+            </button>
+          </div>
+
+          {/* Min likes */}
+          <div className="flex items-center gap-3">
+            <label className="text-[10px] font-bold tracking-widest text-gray-500 uppercase shrink-0">Min Likes</label>
+            <input
+              type="number" min="0" max="10000"
+              value={minLikes}
+              onChange={(e) => setMinLikes(parseInt(e.target.value) || 0)}
+              className="w-24 rounded-lg border border-gray-700 bg-gray-800 px-3 py-1.5 text-xs text-white focus:border-brand-500 focus:outline-none"
+            />
+            <span className="text-[10px] text-gray-600">Only tweets with ≥ this many likes are included</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Footer */}
+      {!source.already_added && (
+        <div className="flex items-center justify-end gap-3 border-t border-gray-800 px-6 py-3">
+          <span className="text-[10px] text-gray-600">{accounts.length} account{accounts.length !== 1 ? 's' : ''} · min {minLikes} likes</span>
+          <button
+            onClick={() => onAdd(source, { accounts, min_likes: minLikes })}
+            disabled={accounts.length === 0}
+            className="rounded-lg bg-brand-600 px-5 py-2 text-xs font-bold text-white hover:bg-brand-500 disabled:opacity-50 transition"
+          >
+            + Add X Source
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Catalog card ──────────────────────────────────────────────────────────────
 
 function CatalogCard({ source, onAdd }: { source: CatalogSource; onAdd: (s: CatalogSource) => void }) {
@@ -187,7 +323,7 @@ export default function AdminSourceDiscover() {
     onSuccess: (data) => setAnalysis(data),
   })
 
-  function handleAdd(source: CatalogSource) {
+  function handleAdd(source: CatalogSource, customConfig?: Record<string, unknown>) {
     importMut.mutate({
       name: source.name,
       slug: source.slug,
@@ -195,7 +331,7 @@ export default function AdminSourceDiscover() {
       feed_url: source.feed_url,
       scraper_type: source.scraper_type,
       category: source.category,
-      scrape_config: (source as any).scrape_config ?? {},
+      scrape_config: customConfig ?? source.scrape_config ?? {},
     })
   }
 
@@ -272,9 +408,13 @@ export default function AdminSourceDiscover() {
             <div className="flex justify-center py-20"><Spinner size="lg" /></div>
           ) : (
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {filtered.map((source) => (
-                <CatalogCard key={source.slug} source={source} onAdd={handleAdd} />
-              ))}
+              {filtered.map((source) =>
+                source.scraper_type === 'twitter' ? (
+                  <XSourceCard key={source.slug} source={source} onAdd={handleAdd} />
+                ) : (
+                  <CatalogCard key={source.slug} source={source} onAdd={handleAdd} />
+                )
+              )}
             </div>
           )}
         </>

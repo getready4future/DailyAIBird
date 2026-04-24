@@ -77,7 +77,8 @@ async def _scrape_source(source: Source, db: Session) -> tuple[int, int]:
             articles: list[ScrapedArticle] = await scraper.fetch_articles()
 
         found = len(articles)
-        max_articles = settings.MAX_ARTICLES_PER_SOURCE
+        from app.config_store import get_max_articles_per_source
+        global_max = get_max_articles_per_source()
 
         # Collect existing titles in DB for near-duplicate check
         existing_titles: list[str] = [
@@ -88,7 +89,7 @@ async def _scrape_source(source: Source, db: Session) -> tuple[int, int]:
             .all()
         ]
 
-        max_articles = source.max_articles if source.max_articles is not None else settings.MAX_ARTICLES_PER_SOURCE
+        max_articles = source.max_articles if source.max_articles is not None else global_max
         for article in articles[:max_articles]:
             # Skip old articles
             if article.published_at and article.published_at < cutoff:

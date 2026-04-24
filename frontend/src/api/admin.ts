@@ -71,6 +71,7 @@ export interface AdminSource {
   max_articles: number | null
   context_prompt: string | null
   cron_schedule: string | null
+  scrape_config: Record<string, unknown> | null
   created_at: string
 }
 
@@ -227,6 +228,22 @@ export const updateUser = async (id: number, body: { display_name?: string; role
 
 export const deleteUser = async (id: number): Promise<void> => {
   await adminApi.delete(`/admin/users/${id}`)
+}
+
+// ── Global App Config ─────────────────────────────────────────────────────────
+
+export interface AppConfig {
+  max_articles_per_source: number
+}
+
+export const fetchAppConfig = async (): Promise<AppConfig> => {
+  const { data } = await adminApi.get<AppConfig>('/admin/config')
+  return data
+}
+
+export const updateAppConfig = async (config: Partial<AppConfig>): Promise<AppConfig> => {
+  const { data } = await adminApi.patch<AppConfig>('/admin/config', config)
+  return data
 }
 
 // ── Scheduler ─────────────────────────────────────────────────────────────────

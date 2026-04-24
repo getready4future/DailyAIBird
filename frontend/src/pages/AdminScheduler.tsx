@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { fetchScheduler, updateScheduler, type SchedulerConfig } from '../api/admin'
+import { fetchScheduler, updateScheduler, fetchAppConfig, updateAppConfig, type SchedulerConfig } from '../api/admin'
 import Spinner from '../components/ui/Spinner'
 
 function pad(n: number) { return String(n).padStart(2, '0') }
@@ -23,6 +23,10 @@ export default function AdminScheduler() {
     queryKey: ['admin-scheduler'],
     queryFn: fetchScheduler,
   })
+  const { data: appConfig } = useQuery({
+    queryKey: ['admin-config'],
+    queryFn: fetchAppConfig,
+  })
 
   const [scrapeHour, setScrapeHour]     = useState(6)
   const [scrapeMinute, setScrapeMinute] = useState(0)
@@ -30,6 +34,9 @@ export default function AdminScheduler() {
   const [digestMinute, setDigestMinute] = useState(15)
   const [enabled, setEnabled]           = useState(true)
   const [saved, setSaved]               = useState(false)
+
+  const [maxArticles, setMaxArticles]   = useState(20)
+  const [configSaved, setConfigSaved]   = useState(false)
 
   useEffect(() => {
     if (config) {
@@ -40,6 +47,12 @@ export default function AdminScheduler() {
       setEnabled(config.enabled)
     }
   }, [config])
+
+  useEffect(() => {
+    if (appConfig) {
+      setMaxArticles(appConfig.max_articles_per_source)
+    }
+  }, [appConfig])
 
   const saveMut = useMutation({
     mutationFn: () => updateScheduler({
@@ -53,6 +66,15 @@ export default function AdminScheduler() {
       qc.invalidateQueries({ queryKey: ['admin-scheduler'] })
       setSaved(true)
       setTimeout(() => setSaved(false), 3000)
+    },
+  })
+
+  const configMut = useMutation({
+    mutationFn: () => updateAppConfig({ max_articles_per_source: maxArticles }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['admin-config'] })
+      setConfigSaved(true)
+      setTimeout(() => setConfigSaved(false), 3000)
     },
   })
 
@@ -200,6 +222,47 @@ export default function AdminScheduler() {
       <div className="mt-4 rounded-xl border border-gray-800/50 px-5 py-4 text-xs text-gray-600">
         <p>All times are in UTC. Changes take effect immediately via APScheduler without restarting the server.</p>
         <p className="mt-1">Tip: Set scrape 1 hour before digest so articles are ready when the briefing runs.</p>
+      </div>
+
+      {/* Global Limits */}
+      <div className="mt-6 rounded-2xl border border-gray-800 bg-gray-900 p-6">
+        <div className="mb-5">
+          <p className="text-[10px] font-bold tracking-widest text-gray-500 uppercase mb-1">Global Limits</p>
+          <h2 className="text-base font-bold text-white">Content Limits</h2>
+          <p className="mt-1 text-xs text-gray-500">
+            Default article cap per source per scrape run. Individual sources can override this in Source Management.
+          </p>
+        </div>
+
+        <div className="flex flex-wrap items-end gap-6">
+          <div>
+            <label className="mb-1.5 block text-[10px] font-bold tracking-widest text-gray-500 uppercase">
+              Max Articles per Source
+            </label>
+            <div className="flex items-center gap-3">
+              <input
+                type="number"
+                min="1"
+                max="200"
+                value={maxArticles}
+                onChange={(e) => setMaxArticles(Math.max(1, parseInt(e.target.value) || 1))}
+                className="w-28 rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-white focus:border-brand-500 focus:outline-none"
+              />
+              <span className="text-xs text-gray-500">articles/source/run</span>
+            </div>
+            <p className="mt-1.5 text-[10px] text-gray-600">
+              Sources without a per-source override will use this value.
+            </p>
+          </div>
+
+          <button
+            onClick={() => configMut.mutate()}
+            disabled={configMut.isPending}
+            className="rounded-lg bg-brand-600 px-5 py-2 text-xs font-bold text-white hover:bg-brand-500 disabled:opacity-50 transition"
+          >
+            {configMut.isPending ? 'Saving…' : configSaved ? '✓ Saved' : 'Save Limits'}
+          </button>
+        </div>
       </div>
     </div>
   )
