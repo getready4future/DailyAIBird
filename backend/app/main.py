@@ -68,7 +68,7 @@ DEFAULT_SOURCE_SLUGS = [
 
 
 def _seed_sources() -> None:
-    """Populate sources table with defaults from catalog if empty."""
+    """Ensure every DEFAULT_SOURCE_SLUGS entry exists in the DB (idempotent)."""
     from app.database import SessionLocal
     from app.models.source import Source
     from app.scrapers.source_catalog import CATALOG
@@ -76,13 +76,15 @@ def _seed_sources() -> None:
 
     db = SessionLocal()
     try:
-        if db.query(Source).count() > 0:
-            return
         catalog_map = {s["slug"]: s for s in CATALOG}
+        existing_slugs = {row[0] for row in db.query(Source.slug).all()}
         added = 0
         for slug in DEFAULT_SOURCE_SLUGS:
+            if slug in existing_slugs:
+                continue
             entry = catalog_map.get(slug)
             if not entry:
+                logger.warning("Default source slug '%s' not found in catalog — skipping", slug)
                 continue
             db.add(Source(
                 name=entry["name"],
@@ -94,9 +96,16 @@ def _seed_sources() -> None:
                 is_active=True,
                 created_at=datetime.utcnow(),
             ))
+            existing_slugs.add(slug)
             added += 1
-        db.commit()
-        logger.info("Seeded %d default sources", added)
+        if added:
+            db.commit()
+            logger.info("Seeded %d missing default sources", added)
+        else:
+            logger.info("All default sources already present (%d total)", len(existing_slugs))
+    except Exception as exc:
+        logger.error("Source seeding failed: %s", exc)
+        db.rollback()
     finally:
         db.close()
 
