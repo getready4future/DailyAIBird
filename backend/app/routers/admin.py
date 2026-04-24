@@ -45,6 +45,22 @@ class LoginRequest(BaseModel):
     password: str
 
 
+class ResetPasswordRequest(BaseModel):
+    new_password: str
+
+
+@router.post("/reset-admin-password")
+def reset_admin_password(body: ResetPasswordRequest, db: Session = Depends(get_db), token: str = Security(_api_key_header)):
+    if token != settings.ADMIN_SECRET:
+        raise HTTPException(status_code=401, detail="Invalid admin token")
+    user = db.query(AdminUser).filter(AdminUser.username == "admin").first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Admin user not found")
+    user.password_hash = hash_password(body.new_password)
+    db.commit()
+    return {"ok": True, "message": "Admin password updated"}
+
+
 @router.post("/login")
 def admin_login(body: LoginRequest, db: Session = Depends(get_db)):
     user = db.query(AdminUser).filter(
