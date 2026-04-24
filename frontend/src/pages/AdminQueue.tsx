@@ -10,33 +10,90 @@ import EmptyState from '../components/ui/EmptyState'
 const BASE_URL = import.meta.env.VITE_API_URL || ''
 const ADMIN_TOKEN = import.meta.env.VITE_ADMIN_TOKEN || ''
 
-type LogEvent = { message: string; kind: string; ts: number }
-
-function kindStyle(kind: string) {
-  switch (kind) {
-    case 'publish':    return 'text-emerald-400'
-    case 'caution':    return 'text-yellow-400'
-    case 'scrape':     return 'text-blue-400'
-    case 'error':      return 'text-red-400'
-    case 'done':       return 'text-emerald-300 font-bold'
-    default:           return 'text-gray-400'
-  }
+type ScrapeEvent = {
+  message: string
+  kind: string
+  ts: number
+  url?: string
+  source?: string
+  topic?: string
+  decision?: string
+  confidence?: number
+  image_url?: string
 }
 
-function kindPrefix(kind: string) {
-  switch (kind) {
-    case 'publish':  return '✓'
-    case 'caution':  return '⚠'
-    case 'scrape':   return '↓'
-    case 'error':    return '✗'
-    case 'done':     return '🎉'
-    default:         return '·'
+function StatusPill({ kind, decision }: { kind: string; decision?: string }) {
+  if (kind === 'found')
+    return <span className="rounded-full bg-blue-900 px-2 py-0.5 text-xs text-blue-300">Bulundu</span>
+  if (kind === 'publish' || decision === 'publish')
+    return <span className="rounded-full bg-emerald-900 px-2 py-0.5 text-xs text-emerald-300">Yayınlandı</span>
+  if (kind === 'caution' || decision === 'publish_with_caution')
+    return <span className="rounded-full bg-yellow-900 px-2 py-0.5 text-xs text-yellow-300">İncelenmeli</span>
+  if (kind === 'error')
+    return <span className="rounded-full bg-red-900 px-2 py-0.5 text-xs text-red-300">Hata</span>
+  return null
+}
+
+function ArticleEventCard({ event }: { event: ScrapeEvent }) {
+  const isArticle = event.kind === 'found' || event.kind === 'publish' || event.kind === 'caution'
+
+  if (!isArticle) {
+    // System message (scrape summary, info, done, error)
+    const color =
+      event.kind === 'scrape' ? 'text-blue-400' :
+      event.kind === 'done'   ? 'text-emerald-300 font-semibold' :
+      event.kind === 'error'  ? 'text-red-400' :
+      'text-gray-500'
+    return (
+      <div className={`flex items-center gap-2 px-1 py-1.5 text-xs ${color}`}>
+        <span className="shrink-0">
+          {event.kind === 'scrape' ? '↓' : event.kind === 'done' ? '🎉' : event.kind === 'error' ? '✗' : '·'}
+        </span>
+        <span>{event.message}</span>
+      </div>
+    )
   }
+
+  return (
+    <div className="flex gap-3 rounded-lg bg-gray-900 p-3 border border-gray-800">
+      {event.image_url && (
+        <img
+          src={event.image_url}
+          alt=""
+          className="h-14 w-20 shrink-0 rounded object-cover"
+          onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none' }}
+        />
+      )}
+      <div className="min-w-0 flex-1">
+        <div className="mb-1 flex flex-wrap items-center gap-1.5">
+          {event.source && (
+            <span className="text-xs font-medium text-gray-400">{event.source}</span>
+          )}
+          <StatusPill kind={event.kind} decision={event.decision} />
+          {event.topic && (
+            <span className="rounded-full bg-gray-800 px-2 py-0.5 text-xs text-gray-300">{event.topic}</span>
+          )}
+          {event.confidence !== undefined && (
+            <span className="text-xs text-gray-600">güven {event.confidence}/5</span>
+          )}
+        </div>
+        <a
+          href={event.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-sm text-gray-100 leading-snug line-clamp-2 hover:text-white hover:underline"
+        >
+          {event.message}
+        </a>
+      </div>
+    </div>
+  )
 }
 
 function ScrapePanel({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
-  const [logs, setLogs] = useState<LogEvent[]>([])
+  const [events, setEvents] = useState<ScrapeEvent[]>([])
   const [done, setDone] = useState(false)
+  const [counts, setCounts] = useState({ found: 0, published: 0, caution: 0 })
   const bottomRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -44,8 +101,13 @@ function ScrapePanel({ onClose, onDone }: { onClose: () => void; onDone: () => v
     const es = new EventSource(url)
 
     es.onmessage = (e) => {
-      const event: LogEvent = JSON.parse(e.data)
-      setLogs((prev) => [...prev, event])
+      const event: ScrapeEvent = JSON.parse(e.data)
+      setEvents((prev) => [...prev, event])
+      setCounts((prev) => ({
+        found:     prev.found     + (event.kind === 'found'   ? 1 : 0),
+        published: prev.published + (event.kind === 'publish' ? 1 : 0),
+        caution:   prev.caution   + (event.kind === 'caution' ? 1 : 0),
+      }))
       if (event.kind === 'done') {
         setDone(true)
         es.close()
@@ -54,7 +116,7 @@ function ScrapePanel({ onClose, onDone }: { onClose: () => void; onDone: () => v
     }
 
     es.onerror = () => {
-      setLogs((prev) => [...prev, { message: 'Bağlantı kesildi.', kind: 'error', ts: Date.now() / 1000 }])
+      setEvents((prev) => [...prev, { message: 'Bağlantı kesildi.', kind: 'error', ts: Date.now() / 1000 }])
       es.close()
     }
 
@@ -63,33 +125,38 @@ function ScrapePanel({ onClose, onDone }: { onClose: () => void; onDone: () => v
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [logs])
+  }, [events])
 
   return (
-    <div className="fixed inset-y-0 right-0 z-50 flex w-full max-w-md flex-col bg-gray-950 shadow-2xl">
+    <div className="fixed inset-y-0 right-0 z-50 flex w-full max-w-lg flex-col bg-gray-950 shadow-2xl">
+      {/* Header */}
       <div className="flex items-center justify-between border-b border-gray-800 px-5 py-4">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
           {!done && <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-emerald-400" />}
           <span className="text-sm font-semibold text-white">
-            {done ? 'Tamamlandı' : 'Scraping çalışıyor…'}
+            {done ? 'Scraping tamamlandı' : 'Haberler taranıyor…'}
           </span>
         </div>
-        <button onClick={onClose} className="text-gray-500 hover:text-white text-lg">✕</button>
+        <button onClick={onClose} className="text-gray-500 hover:text-white text-lg leading-none">✕</button>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-4 font-mono text-xs leading-relaxed">
-        {logs.map((log, i) => (
-          <div key={i} className="flex gap-2 py-0.5">
-            <span className="text-gray-600 shrink-0">
-              {new Date(log.ts * 1000).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-            </span>
-            <span className={`shrink-0 ${kindStyle(log.kind)}`}>{kindPrefix(log.kind)}</span>
-            <span className={kindStyle(log.kind)}>{log.message}</span>
-          </div>
-        ))}
-        {!done && logs.length === 0 && (
-          <p className="text-gray-600">Bağlanıyor…</p>
+      {/* Stats bar */}
+      {(counts.found > 0 || counts.published > 0 || counts.caution > 0) && (
+        <div className="flex gap-4 border-b border-gray-800 px-5 py-2 text-xs">
+          <span className="text-blue-400">{counts.found} bulundu</span>
+          <span className="text-emerald-400">{counts.published} onaylandı</span>
+          {counts.caution > 0 && <span className="text-yellow-400">{counts.caution} incelenmeli</span>}
+        </div>
+      )}
+
+      {/* Feed */}
+      <div className="flex-1 overflow-y-auto p-4 space-y-2">
+        {events.length === 0 && !done && (
+          <p className="text-xs text-gray-600">Bağlanıyor…</p>
         )}
+        {events.map((ev, i) => (
+          <ArticleEventCard key={i} event={ev} />
+        ))}
         <div ref={bottomRef} />
       </div>
 

@@ -120,6 +120,15 @@ async def _scrape_source(source: Source, db: Session) -> tuple[int, int]:
             existing_titles.append(article.title)
             new += 1
 
+            from app.ai import progress
+            progress.emit(
+                article.title,
+                kind="found",
+                url=article.url,
+                source=source.name,
+                image_url=article.image_url,
+            )
+
         db.commit()
 
         run.status = "success"

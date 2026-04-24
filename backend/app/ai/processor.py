@@ -120,8 +120,13 @@ def process_article(article: Article, source_name: str, db: Session) -> None:
 
     from app.ai import progress
     progress.emit(
-        f"#{article.id} {decision}: {article.topic or '—'} (güven {confidence:.0f}/5)",
+        article.title,
         kind="publish" if decision == "publish" else "caution" if decision == "publish_with_caution" else "info",
+        url=article.url,
+        topic=article.topic,
+        decision=decision,
+        confidence=int(confidence),
+        image_url=article.image_url,
     )
     logger.info(
         "Article %s processed: decision=%s topic=%s relevance=%.2f confidence=%.0f",
