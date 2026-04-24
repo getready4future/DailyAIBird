@@ -1,7 +1,7 @@
 """
 Two-pass AI processing per article:
   Call A — quality/verification (gates Call B)
-  Call B — consumer-friendly summary
+  Call B — full article rewrite
 """
 import json
 import logging
@@ -36,7 +36,18 @@ def _parse_json(text: str) -> dict:
 
 def process_article(article: Article, source_name: str, db: Session) -> None:
     """Run Call A then optionally Call B on a single article, updating it in-place."""
+    from app.ai import progress
+
     content = _truncate(article.raw_content)
+
+    # ── Step 1: Announce we're analyzing ─────────────────────────────────────
+    progress.emit(
+        article.title,
+        kind="analyzing",
+        url=article.url,
+        source=source_name,
+        image_url=article.image_url,
+    )
 
     # ── Call A: Quality / Verification ───────────────────────────────────────
     prompt_a = QUALITY_CHECK_PROMPT.format(
@@ -49,7 +60,12 @@ def process_article(article: Article, source_name: str, db: Session) -> None:
         result_a = _parse_json(raw_a)
     except Exception as exc:
         logger.error("Call A failed for article %s: %s", article.id, exc)
-        # On failure, send to human queue for manual review
+        progress.emit(
+            article.title,
+            kind="error",
+            url=article.url,
+            detail=f"Call A başarısız: {exc}",
+        )
         article.status = "pending_human"
         article.ai_processed = True
         article.ai_processed_at = datetime.utcnow()
@@ -68,7 +84,6 @@ def process_article(article: Article, source_name: str, db: Session) -> None:
     article.topic = result_a.get("topic") or None
     article.sentiment = result_a.get("sentiment") or "neutral"
 
-    # Normalize tags — AI sometimes returns a comma-separated string instead of array
     tags_raw = result_a.get("tags") or []
     if isinstance(tags_raw, str):
         tags_raw = [t.strip() for t in tags_raw.split(",") if t.strip()]
@@ -82,19 +97,38 @@ def process_article(article: Article, source_name: str, db: Session) -> None:
 
     decision = result_a.get("decision", "skip")
 
-    # Reject if AI says skip or confidence too low
+    # ── Step 2: Emit Call A scores ────────────────────────────────────────────
+    progress.emit(
+        article.title,
+        kind="scored",
+        url=article.url,
+        topic=article.topic,
+        decision=decision,
+        quality=int(src_q),
+        relevance=int(cons_r),
+        confidence=int(confidence),
+        core_claim=result_a.get("core_claim", ""),
+    )
+
+    # ── Reject if AI says skip or confidence too low ──────────────────────────
     if decision == "skip" or confidence < CONFIDENCE_REJECT_THRESHOLD:
         article.status = "rejected_ai"
         article.ai_processed = True
         article.ai_processed_at = datetime.utcnow()
         db.commit()
-        logger.info(
-            "Article %s rejected (decision=%s, confidence=%.0f)",
-            article.id, decision, confidence,
+        progress.emit(
+            article.title,
+            kind="skipped",
+            url=article.url,
+            reason=f"decision={decision} · güven {int(confidence)}/5",
         )
+        logger.info("Article %s rejected (decision=%s, confidence=%.0f)", article.id, decision, confidence)
         return
 
     why_it_matters = result_a.get("why_it_matters_for_users", "")
+
+    # ── Step 3: Announce rewrite ──────────────────────────────────────────────
+    progress.emit(article.title, kind="rewriting", url=article.url)
 
     # ── Call B: Full Article Rewrite ──────────────────────────────────────────
     prompt_b = ENRICH_PROMPT.format(
@@ -117,16 +151,19 @@ def process_article(article: Article, source_name: str, db: Session) -> None:
     article.ai_processed_at = datetime.utcnow()
     db.commit()
 
-    from app.ai import progress
+    # ── Step 4: Emit final result ─────────────────────────────────────────────
+    preview = (article.summary or "")[:160].strip()
     progress.emit(
         article.title,
-        kind="publish" if decision == "publish" else "caution" if decision == "publish_with_caution" else "info",
+        kind="publish" if decision == "publish" else "caution",
         url=article.url,
         topic=article.topic,
         decision=decision,
         confidence=int(confidence),
         image_url=article.image_url,
+        preview=preview,
     )
+
     logger.info(
         "Article %s processed: decision=%s topic=%s relevance=%.2f confidence=%.0f",
         article.id, decision, article.topic, article.relevance_score, confidence,

@@ -19,81 +19,153 @@ type ScrapeEvent = {
   topic?: string
   decision?: string
   confidence?: number
+  quality?: number
+  relevance?: number
   image_url?: string
+  preview?: string
+  core_claim?: string
+  detail?: string
+  reason?: string
 }
 
-function StatusPill({ kind, decision }: { kind: string; decision?: string }) {
-  if (kind === 'found')
-    return <span className="rounded-full bg-blue-900 px-2 py-0.5 text-xs text-blue-300">Bulundu</span>
-  if (kind === 'publish' || decision === 'publish')
-    return <span className="rounded-full bg-emerald-900 px-2 py-0.5 text-xs text-emerald-300">Yayınlandı</span>
-  if (kind === 'caution' || decision === 'publish_with_caution')
-    return <span className="rounded-full bg-yellow-900 px-2 py-0.5 text-xs text-yellow-300">İncelenmeli</span>
-  if (kind === 'error')
-    return <span className="rounded-full bg-red-900 px-2 py-0.5 text-xs text-red-300">Hata</span>
-  return null
-}
+// ── Individual event renderers ────────────────────────────────────────────────
 
-function ArticleEventCard({ event }: { event: ScrapeEvent }) {
-  const isArticle = event.kind === 'found' || event.kind === 'publish' || event.kind === 'caution'
-
-  if (!isArticle) {
-    // System message (scrape summary, info, done, error)
-    const color =
-      event.kind === 'scrape' ? 'text-blue-400' :
-      event.kind === 'done'   ? 'text-emerald-300 font-semibold' :
-      event.kind === 'error'  ? 'text-red-400' :
-      'text-gray-500'
-    return (
-      <div className={`flex items-center gap-2 px-1 py-1.5 text-xs ${color}`}>
-        <span className="shrink-0">
-          {event.kind === 'scrape' ? '↓' : event.kind === 'done' ? '🎉' : event.kind === 'error' ? '✗' : '·'}
-        </span>
-        <span>{event.message}</span>
-      </div>
-    )
-  }
-
+function EvFound({ ev }: { ev: ScrapeEvent }) {
   return (
-    <div className="flex gap-3 rounded-lg bg-gray-900 p-3 border border-gray-800">
-      {event.image_url && (
-        <img
-          src={event.image_url}
-          alt=""
-          className="h-14 w-20 shrink-0 rounded object-cover"
-          onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none' }}
-        />
+    <div className="flex gap-3 rounded-lg border border-blue-900/50 bg-blue-950/30 p-3">
+      {ev.image_url && (
+        <img src={ev.image_url} alt="" className="h-12 w-16 shrink-0 rounded object-cover opacity-80"
+          onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none' }} />
       )}
-      <div className="min-w-0 flex-1">
-        <div className="mb-1 flex flex-wrap items-center gap-1.5">
-          {event.source && (
-            <span className="text-xs font-medium text-gray-400">{event.source}</span>
-          )}
-          <StatusPill kind={event.kind} decision={event.decision} />
-          {event.topic && (
-            <span className="rounded-full bg-gray-800 px-2 py-0.5 text-xs text-gray-300">{event.topic}</span>
-          )}
-          {event.confidence !== undefined && (
-            <span className="text-xs text-gray-600">güven {event.confidence}/5</span>
-          )}
+      <div className="min-w-0">
+        <div className="mb-0.5 flex items-center gap-1.5 text-xs text-blue-400">
+          <span>↓</span>
+          <span>{ev.source}</span>
+          <span className="text-blue-700">· bulundu</span>
         </div>
-        <a
-          href={event.url}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-sm text-gray-100 leading-snug line-clamp-2 hover:text-white hover:underline"
-        >
-          {event.message}
-        </a>
+        <p className="text-sm text-gray-200 line-clamp-1">{ev.message}</p>
       </div>
     </div>
   )
 }
 
+function EvAnalyzing({ ev }: { ev: ScrapeEvent }) {
+  return (
+    <div className="flex items-center gap-2 pl-2 py-1 text-xs text-gray-500">
+      <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-gray-500" />
+      <span className="line-clamp-1">Call A — analiz ediliyor: <span className="text-gray-400">{ev.message}</span></span>
+    </div>
+  )
+}
+
+function EvScored({ ev }: { ev: ScrapeEvent }) {
+  const decisionColor =
+    ev.decision === 'publish' ? 'text-emerald-400' :
+    ev.decision === 'publish_with_caution' ? 'text-yellow-400' :
+    'text-red-400'
+
+  return (
+    <div className="ml-3 rounded border border-gray-800 bg-gray-900/60 p-2.5 text-xs space-y-1">
+      <div className="flex flex-wrap gap-3 text-gray-400">
+        <span>kaynak <span className="text-white">{ev.quality}/5</span></span>
+        <span>alaka <span className="text-white">{ev.relevance}/5</span></span>
+        <span>güven <span className="text-white">{ev.confidence}/5</span></span>
+        {ev.topic && <span className="rounded-full bg-gray-800 px-2 py-0.5 text-gray-300">{ev.topic}</span>}
+        <span className={`font-medium ${decisionColor}`}>{ev.decision}</span>
+      </div>
+      {ev.core_claim && (
+        <p className="text-gray-500 line-clamp-2 leading-relaxed">"{ev.core_claim}"</p>
+      )}
+    </div>
+  )
+}
+
+function EvRewriting({ ev }: { ev: ScrapeEvent }) {
+  return (
+    <div className="flex items-center gap-2 pl-2 py-1 text-xs text-gray-500">
+      <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-purple-500" />
+      <span>Call B — yeniden yazılıyor: <span className="text-gray-400 line-clamp-1">{ev.message}</span></span>
+    </div>
+  )
+}
+
+function EvReady({ ev }: { ev: ScrapeEvent }) {
+  const isPublish = ev.kind === 'publish'
+  return (
+    <div className={`rounded-lg border p-3 ${isPublish ? 'border-emerald-800/60 bg-emerald-950/20' : 'border-yellow-800/60 bg-yellow-950/10'}`}>
+      <div className="mb-1.5 flex flex-wrap items-center gap-1.5">
+        {ev.image_url && (
+          <img src={ev.image_url} alt="" className="h-8 w-11 rounded object-cover"
+            onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none' }} />
+        )}
+        <span className={`text-xs font-semibold ${isPublish ? 'text-emerald-400' : 'text-yellow-400'}`}>
+          {isPublish ? '✓ Kuyruğa eklendi' : '⚠ İnceleme gerekli'}
+        </span>
+        {ev.topic && <span className="rounded-full bg-gray-800 px-2 py-0.5 text-xs text-gray-300">{ev.topic}</span>}
+        <span className="text-xs text-gray-600">güven {ev.confidence}/5</span>
+      </div>
+      <a href={ev.url} target="_blank" rel="noopener noreferrer"
+        className="mb-1 block text-sm font-medium text-gray-100 line-clamp-1 hover:underline">
+        {ev.message}
+      </a>
+      {ev.preview && (
+        <p className="text-xs text-gray-500 line-clamp-2 leading-relaxed">{ev.preview}</p>
+      )}
+    </div>
+  )
+}
+
+function EvSkipped({ ev }: { ev: ScrapeEvent }) {
+  return (
+    <div className="flex items-start gap-2 pl-2 py-1 text-xs text-gray-600">
+      <span className="mt-0.5 shrink-0 text-red-800">✗</span>
+      <div>
+        <span className="line-clamp-1 text-gray-600">{ev.message}</span>
+        {ev.reason && <span className="text-gray-700"> · {ev.reason}</span>}
+      </div>
+    </div>
+  )
+}
+
+function EvSystem({ ev }: { ev: ScrapeEvent }) {
+  const color =
+    ev.kind === 'source_start' ? 'text-gray-500' :
+    ev.kind === 'scrape'       ? 'text-blue-500' :
+    ev.kind === 'done'         ? 'text-emerald-400 font-semibold' :
+    ev.kind === 'error'        ? 'text-red-400' :
+    'text-gray-600'
+  const icon =
+    ev.kind === 'source_start' ? '→' :
+    ev.kind === 'scrape'       ? '↓' :
+    ev.kind === 'done'         ? '🎉' :
+    ev.kind === 'error'        ? '✗' : '·'
+  return (
+    <div className={`flex items-center gap-2 px-1 py-1 text-xs ${color}`}>
+      <span className="shrink-0">{icon}</span>
+      <span>{ev.message}</span>
+    </div>
+  )
+}
+
+function PipelineEvent({ ev }: { ev: ScrapeEvent }) {
+  switch (ev.kind) {
+    case 'found':      return <EvFound ev={ev} />
+    case 'analyzing':  return <EvAnalyzing ev={ev} />
+    case 'scored':     return <EvScored ev={ev} />
+    case 'rewriting':  return <EvRewriting ev={ev} />
+    case 'publish':
+    case 'caution':    return <EvReady ev={ev} />
+    case 'skipped':    return <EvSkipped ev={ev} />
+    default:           return <EvSystem ev={ev} />
+  }
+}
+
+// ── Panel ─────────────────────────────────────────────────────────────────────
+
 function ScrapePanel({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
   const [events, setEvents] = useState<ScrapeEvent[]>([])
   const [done, setDone] = useState(false)
-  const [counts, setCounts] = useState({ found: 0, published: 0, caution: 0 })
+  const [counts, setCounts] = useState({ found: 0, ready: 0, skipped: 0 })
   const bottomRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -104,9 +176,9 @@ function ScrapePanel({ onClose, onDone }: { onClose: () => void; onDone: () => v
       const event: ScrapeEvent = JSON.parse(e.data)
       setEvents((prev) => [...prev, event])
       setCounts((prev) => ({
-        found:     prev.found     + (event.kind === 'found'   ? 1 : 0),
-        published: prev.published + (event.kind === 'publish' ? 1 : 0),
-        caution:   prev.caution   + (event.kind === 'caution' ? 1 : 0),
+        found:   prev.found   + (event.kind === 'found'                        ? 1 : 0),
+        ready:   prev.ready   + (event.kind === 'publish' || event.kind === 'caution' ? 1 : 0),
+        skipped: prev.skipped + (event.kind === 'skipped'                      ? 1 : 0),
       }))
       if (event.kind === 'done') {
         setDone(true)
@@ -129,43 +201,38 @@ function ScrapePanel({ onClose, onDone }: { onClose: () => void; onDone: () => v
 
   return (
     <div className="fixed inset-y-0 right-0 z-50 flex w-full max-w-lg flex-col bg-gray-950 shadow-2xl">
-      {/* Header */}
       <div className="flex items-center justify-between border-b border-gray-800 px-5 py-4">
         <div className="flex items-center gap-3">
-          {!done && <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-emerald-400" />}
+          {!done && <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-400 inline-block" />}
           <span className="text-sm font-semibold text-white">
-            {done ? 'Scraping tamamlandı' : 'Haberler taranıyor…'}
+            {done ? 'Pipeline tamamlandı' : 'Pipeline çalışıyor…'}
           </span>
         </div>
         <button onClick={onClose} className="text-gray-500 hover:text-white text-lg leading-none">✕</button>
       </div>
 
-      {/* Stats bar */}
-      {(counts.found > 0 || counts.published > 0 || counts.caution > 0) && (
+      {(counts.found > 0 || counts.ready > 0 || counts.skipped > 0) && (
         <div className="flex gap-4 border-b border-gray-800 px-5 py-2 text-xs">
           <span className="text-blue-400">{counts.found} bulundu</span>
-          <span className="text-emerald-400">{counts.published} onaylandı</span>
-          {counts.caution > 0 && <span className="text-yellow-400">{counts.caution} incelenmeli</span>}
+          <span className="text-emerald-400">{counts.ready} kuyruğa eklendi</span>
+          {counts.skipped > 0 && <span className="text-gray-600">{counts.skipped} atlandı</span>}
         </div>
       )}
 
-      {/* Feed */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-2">
+      <div className="flex-1 overflow-y-auto p-3 space-y-1">
         {events.length === 0 && !done && (
-          <p className="text-xs text-gray-600">Bağlanıyor…</p>
+          <p className="text-xs text-gray-600 px-1">Bağlanıyor…</p>
         )}
         {events.map((ev, i) => (
-          <ArticleEventCard key={i} event={ev} />
+          <PipelineEvent key={i} ev={ev} />
         ))}
         <div ref={bottomRef} />
       </div>
 
       {done && (
         <div className="border-t border-gray-800 p-4">
-          <button
-            onClick={onClose}
-            className="w-full rounded-lg bg-emerald-700 py-2 text-sm font-semibold text-white hover:bg-emerald-600"
-          >
+          <button onClick={onClose}
+            className="w-full rounded-lg bg-emerald-700 py-2 text-sm font-semibold text-white hover:bg-emerald-600">
             Kapat
           </button>
         </div>

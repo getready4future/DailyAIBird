@@ -69,6 +69,9 @@ async def _scrape_source(source: Source, db: Session) -> tuple[int, int]:
     found = 0
     new = 0
 
+    from app.ai import progress as _prog
+    _prog.emit(f"{source.name} taranıyor…", kind="source_start", source=source.name)
+
     try:
         async with SCRAPE_SEMAPHORE:
             articles: list[ScrapedArticle] = await scraper.fetch_articles()
