@@ -232,6 +232,177 @@ def update_scheduler(config: dict = Body(...)):
     return current
 
 
+# ── Source Discovery ─────────────────────────────────────────────────────────
+
+@router.get("/sources/catalog", dependencies=[Depends(_check_token)])
+def get_source_catalog(db: Session = Depends(get_db)):
+    """Return curated catalog entries that are not yet in the DB."""
+    from app.scrapers.source_catalog import CATALOG
+    existing_slugs = {s.slug for s in db.query(Source.slug).all()}
+    return [
+        {**entry, "already_added": entry["slug"] in existing_slugs}
+        for entry in CATALOG
+    ]
+
+
+class ImportSourceBody(BaseModel):
+    name: str
+    slug: str
+    url: str
+    feed_url: str | None = None
+    scraper_type: str
+    category: str
+    scrape_config: dict = {}
+
+
+@router.post("/sources/import", dependencies=[Depends(_check_token)])
+def import_catalog_source(body: ImportSourceBody, db: Session = Depends(get_db)):
+    """Add a catalog source to the database."""
+    if db.query(Source).filter(Source.slug == body.slug).first():
+        raise HTTPException(status_code=409, detail="Source already exists")
+    source = Source(
+        name=body.name,
+        slug=body.slug,
+        url=body.url,
+        feed_url=body.feed_url,
+        scraper_type=body.scraper_type,
+        category=body.category,
+        scrape_config=json.dumps(body.scrape_config),
+        is_active=True,
+        created_at=datetime.utcnow(),
+    )
+    db.add(source)
+    db.commit()
+    db.refresh(source)
+    return {"id": source.id, "slug": source.slug, "name": source.name}
+
+
+class AnalyzeUrlBody(BaseModel):
+    url: str
+
+
+@router.post("/sources/analyze", dependencies=[Depends(_check_token)])
+async def analyze_source_url(body: AnalyzeUrlBody):
+    """
+    Fetch a URL, detect RSS feeds, then use AI to assess if it's a good AI news source.
+    Returns a structured assessment with suggested import config.
+    """
+    import httpx
+    import re
+    from bs4 import BeautifulSoup
+
+    url = body.url.strip()
+    if not url.startswith("http"):
+        url = "https://" + url
+
+    # ── Fetch the page ────────────────────────────────────────────────────────
+    try:
+        async with httpx.AsyncClient(timeout=15, follow_redirects=True,
+                                     headers={"User-Agent": "DailyAIBird/1.0 (source analyzer)"}) as client:
+            resp = await client.get(url)
+        html = resp.text
+        final_url = str(resp.url)
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail=f"Could not fetch URL: {exc}")
+
+    soup = BeautifulSoup(html, "html.parser")
+
+    # ── Detect site name ──────────────────────────────────────────────────────
+    site_name = ""
+    og_site = soup.find("meta", property="og:site_name")
+    if og_site:
+        site_name = og_site.get("content", "")
+    if not site_name:
+        title_tag = soup.find("title")
+        if title_tag:
+            site_name = title_tag.get_text(strip=True).split("|")[0].split("-")[0].strip()
+
+    # ── Detect RSS/Atom feeds ─────────────────────────────────────────────────
+    feed_url = None
+    feed_links = soup.find_all("link", rel="alternate", type=lambda t: t and ("rss" in t or "atom" in t))
+    if feed_links:
+        href = feed_links[0].get("href", "")
+        if href.startswith("/"):
+            from urllib.parse import urljoin
+            href = urljoin(final_url, href)
+        feed_url = href
+
+    # Try common feed path patterns if no autodiscovery
+    if not feed_url:
+        from urllib.parse import urlparse
+        base = urlparse(final_url)
+        base_url = f"{base.scheme}://{base.netloc}"
+        async with httpx.AsyncClient(timeout=8, follow_redirects=True) as client:
+            for path in ["/feed", "/rss", "/feed.xml", "/rss.xml", "/atom.xml", "/blog/feed"]:
+                try:
+                    r = await client.get(base_url + path)
+                    ct = r.headers.get("content-type", "")
+                    if r.status_code == 200 and ("xml" in ct or "rss" in ct or "atom" in ct):
+                        feed_url = base_url + path
+                        break
+                except Exception:
+                    continue
+
+    # ── Page excerpt for AI ───────────────────────────────────────────────────
+    # Strip scripts/styles and take first 2000 chars
+    for tag in soup(["script", "style", "nav", "footer"]):
+        tag.decompose()
+    text_excerpt = " ".join(soup.get_text(" ", strip=True).split())[:2000]
+
+    # ── AI Assessment ─────────────────────────────────────────────────────────
+    from app.ai.client import call_claude
+    prompt = f"""You are evaluating a website to determine if it's a good source for an AI news aggregator targeting general readers.
+
+Website URL: {final_url}
+Detected name: {site_name}
+Feed URL found: {feed_url or 'none'}
+Page excerpt: {text_excerpt}
+
+Assess this site and return ONLY valid JSON (no markdown):
+{{
+  "site_name": "<clean site name, max 40 chars>",
+  "slug": "<url-friendly slug using hyphens, max 30 chars>",
+  "description": "<one sentence describing what this site covers, max 100 chars>",
+  "is_ai_relevant": <true|false — does this site regularly publish AI news?>,
+  "quality_score": <1-5 — 1=low quality/irrelevant, 5=excellent primary AI source>,
+  "category": "<one of: blog|news|newsletter|research|policy|social>",
+  "primary_topics": ["<up to 3 main topics>"],
+  "audience": "<technical|general|mixed>",
+  "update_frequency": "<daily|weekly|irregular>",
+  "recommendation": "<add|maybe|skip>",
+  "reason": "<one sentence explaining the recommendation>"
+}}"""
+
+    try:
+        raw = call_claude(prompt, max_tokens=400)
+        # strip markdown
+        raw = raw.strip()
+        if raw.startswith("```"):
+            raw = "\n".join(raw.splitlines()[1:-1])
+        assessment = json.loads(raw)
+    except Exception as exc:
+        assessment = {
+            "site_name": site_name or url,
+            "slug": re.sub(r"[^a-z0-9-]", "-", (site_name or "source").lower())[:30],
+            "description": "Could not analyze — add manually.",
+            "is_ai_relevant": None,
+            "quality_score": None,
+            "category": "news",
+            "primary_topics": [],
+            "audience": "mixed",
+            "update_frequency": "irregular",
+            "recommendation": "maybe",
+            "reason": f"AI analysis failed: {exc}",
+        }
+
+    return {
+        **assessment,
+        "url": final_url,
+        "feed_url": feed_url,
+        "scraper_type": "rss" if feed_url else "playwright",
+    }
+
+
 # ── Moderation Queue ──────────────────────────────────────────────────────────
 
 @router.get("/queue", response_model=list[ArticleAdminOut], dependencies=[Depends(_check_token)])

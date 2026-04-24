@@ -97,6 +97,53 @@ export const fetchModels = async (): Promise<ModelStatus[]> => {
   return data
 }
 
+// ── Source Discovery ─────────────────────────────────────────────────────────
+
+export interface CatalogSource {
+  name: string
+  slug: string
+  url: string
+  feed_url: string | null
+  scraper_type: string
+  category: string
+  description: string
+  tags: string[]
+  requires?: string
+  already_added: boolean
+}
+
+export interface SourceAnalysis {
+  url: string
+  feed_url: string | null
+  scraper_type: string
+  site_name: string
+  slug: string
+  description: string
+  is_ai_relevant: boolean | null
+  quality_score: number | null
+  category: string
+  primary_topics: string[]
+  audience: string
+  update_frequency: string
+  recommendation: 'add' | 'maybe' | 'skip'
+  reason: string
+}
+
+export const fetchSourceCatalog = async (): Promise<CatalogSource[]> => {
+  const { data } = await adminApi.get<CatalogSource[]>('/admin/sources/catalog')
+  return data
+}
+
+export const importCatalogSource = async (source: Omit<CatalogSource, 'already_added' | 'description' | 'tags' | 'requires'>) => {
+  const { data } = await adminApi.post('/admin/sources/import', source)
+  return data
+}
+
+export const analyzeSourceUrl = async (url: string): Promise<SourceAnalysis> => {
+  const { data } = await adminApi.post<SourceAnalysis>('/admin/sources/analyze', { url })
+  return data
+}
+
 // ── Users ─────────────────────────────────────────────────────────────────────
 
 export interface AdminUserRecord {

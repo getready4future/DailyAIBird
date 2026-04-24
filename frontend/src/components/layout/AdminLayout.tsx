@@ -3,12 +3,13 @@ import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { isLoggedIn, clearSession, getSession } from '../../hooks/useAdminAuth'
 
 const NAV = [
-  { to: '/admin',           label: 'Queue',      icon: '📋', end: true },
-  { to: '/admin/digests',   label: 'Digests',    icon: '📰' },
-  { to: '/admin/sources',   label: 'Sources',    icon: '🔗' },
-  { to: '/admin/models',    label: 'Models',     icon: '🤖' },
-  { to: '/admin/scheduler', label: 'Scheduler',  icon: '⏰' },
-  { to: '/admin/users',     label: 'Users',      icon: '👥' },
+  { to: '/admin',                label: 'Queue',         icon: '📋', end: true },
+  { to: '/admin/digests',        label: 'Digests',       icon: '📰' },
+  { to: '/admin/sources',        label: 'Sources',       icon: '🔗' },
+  { to: '/admin/sources/find',   label: 'Find Sources',  icon: '🔍' },
+  { to: '/admin/models',         label: 'Models',        icon: '🤖' },
+  { to: '/admin/scheduler',      label: 'Scheduler',     icon: '⏰' },
+  { to: '/admin/users',          label: 'Users',         icon: '👥' },
 ]
 
 export default function AdminLayout() {
