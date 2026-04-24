@@ -110,11 +110,8 @@ function HeroCard({ article }: { article: Article }) {
 // ── Large card ────────────────────────────────────────────────────────────────
 function LargeCard({ article }: { article: Article }) {
   return (
-    <Link
-      to={`/articles/${article.id}`}
-      className="group flex flex-col overflow-hidden rounded-xl border border-gray-100 bg-white shadow-sm hover:shadow-lg transition-all duration-300 h-full"
-    >
-      <div className="overflow-hidden relative">
+    <div className="group flex flex-col overflow-hidden rounded-xl border border-gray-100 bg-white shadow-sm hover:shadow-lg transition-all duration-300 h-full">
+      <Link to={`/articles/${article.id}`} className="block overflow-hidden relative">
         {article.image_url ? (
           <img
             src={article.image_url}
@@ -136,7 +133,7 @@ function LargeCard({ article }: { article: Article }) {
             <TopicBadge topic={article.topic} />
           </div>
         )}
-      </div>
+      </Link>
 
       <div className="flex flex-1 flex-col p-4">
         <div className="mb-2.5 flex items-center gap-1.5 text-xs text-gray-400">
@@ -144,28 +141,33 @@ function LargeCard({ article }: { article: Article }) {
           <span>·</span>
           <TimeAgo date={article.published_at} />
         </div>
-        <h2 className="mb-2 text-base font-bold leading-snug text-gray-900 line-clamp-2 group-hover:text-brand-600 transition-colors">
+        <Link to={`/articles/${article.id}`} className="mb-2 text-base font-bold leading-snug text-gray-900 line-clamp-2 hover:text-brand-600 transition-colors">
           {article.title}
-        </h2>
+        </Link>
         {article.summary && (
           <p className="flex-1 text-sm text-gray-500 line-clamp-2 leading-relaxed">{article.summary}</p>
         )}
-        <div className="mt-3 pt-3 border-t border-gray-50">
+        <div className="mt-3 pt-3 border-t border-gray-50 flex items-center justify-between gap-2">
           <DualTimestamp article={article} />
+          <a
+            href={article.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="shrink-0 text-[10px] text-gray-400 hover:text-brand-500 transition-colors"
+          >
+            original ↗
+          </a>
         </div>
       </div>
-    </Link>
+    </div>
   )
 }
 
 // ── Default card ──────────────────────────────────────────────────────────────
 function DefaultCard({ article }: { article: Article }) {
   return (
-    <Link
-      to={`/articles/${article.id}`}
-      className="group flex flex-col overflow-hidden rounded-xl border border-gray-100 bg-white shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-200"
-    >
-      <div className="overflow-hidden">
+    <div className="group flex flex-col overflow-hidden rounded-xl border border-gray-100 bg-white shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-200">
+      <Link to={`/articles/${article.id}`} className="block overflow-hidden">
         {article.image_url ? (
           <img
             src={article.image_url}
@@ -182,26 +184,29 @@ function DefaultCard({ article }: { article: Article }) {
         <div className={`${article.image_url ? 'hidden' : ''}`}>
           <TopicGradient topic={article.topic} height="h-40" />
         </div>
-      </div>
+      </Link>
       <div className="flex flex-1 flex-col p-4">
         <div className="mb-1.5 flex items-center gap-1.5 text-xs text-gray-400">
           <span className="font-medium text-gray-600">{article.source.name}</span>
           <span>·</span>
           <TimeAgo date={article.published_at} />
         </div>
-        <h2 className="flex-1 text-sm font-bold leading-snug text-gray-900 line-clamp-3 group-hover:text-brand-600 transition-colors">
+        <Link to={`/articles/${article.id}`} className="flex-1 text-sm font-bold leading-snug text-gray-900 line-clamp-3 hover:text-brand-600 transition-colors">
           {article.title}
-        </h2>
+        </Link>
         <div className="mt-3 flex items-center justify-between gap-2">
           {article.topic && <TopicBadge topic={article.topic} />}
-          {article.approved_at && (
-            <span className="text-[10px] text-gray-400 shrink-0">
-              {format(new Date(article.approved_at), 'MMM d')}
-            </span>
-          )}
+          <a
+            href={article.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="ml-auto text-[10px] text-gray-400 hover:text-brand-500 transition-colors shrink-0"
+          >
+            ↗
+          </a>
         </div>
       </div>
-    </Link>
+    </div>
   )
 }
 

@@ -54,7 +54,14 @@ export default function ArticleDetail() {
       <div className="mb-8 flex flex-wrap items-start gap-x-4 gap-y-2 border-b border-gray-100 pb-6">
         <div>
           <p className="text-[10px] font-bold tracking-widest text-gray-400 uppercase mb-0.5">Source</p>
-          <p className="text-sm font-semibold text-gray-800">{article.source.name}</p>
+          <a
+            href={article.source.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-sm font-semibold text-gray-800 hover:text-brand-600 transition-colors"
+          >
+            {article.source.name} ↗
+          </a>
         </div>
         {article.author && (
           <div>
@@ -93,6 +100,22 @@ export default function ArticleDetail() {
           ))}
         </div>
       )}
+
+      {/* Read Original CTA */}
+      <div className="mb-8 rounded-xl border border-gray-100 bg-gray-50 px-5 py-4 flex items-center justify-between gap-4">
+        <div>
+          <p className="text-xs font-semibold text-gray-700">Read the full story at {article.source.name}</p>
+          <p className="text-[11px] text-gray-400 mt-0.5">This summary was AI-processed from the original article.</p>
+        </div>
+        <a
+          href={article.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="shrink-0 rounded-lg border border-brand-200 bg-white px-4 py-2 text-sm font-semibold text-brand-600 hover:bg-brand-50 hover:border-brand-400 transition-colors"
+        >
+          Read Original →
+        </a>
+      </div>
 
       {/* Tags */}
       {article.tags.length > 0 && (

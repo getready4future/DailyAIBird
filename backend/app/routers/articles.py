@@ -1,6 +1,7 @@
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -30,7 +31,11 @@ def list_articles(
             q = q.filter(Article.source_id == source.id)
 
     if sort == "relevance":
-        q = q.order_by(Article.relevance_score.desc(), Article.published_at.desc())
+        combined = (
+            func.coalesce(Article.relevance_score, 0) * 0.6
+            + func.coalesce(Article.impact_score, 0) * 0.4
+        )
+        q = q.order_by(combined.desc(), Article.published_at.desc())
     else:
         q = q.order_by(Article.published_at.desc())
 

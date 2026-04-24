@@ -18,7 +18,7 @@ from app.database import SessionLocal
 from app.models.article import Article
 from app.models.source import Source
 from app.models.scrape_run import ScrapeRun
-from app.pipeline.deduplicator import normalize_url, titles_are_similar
+from app.pipeline.deduplicator import normalize_url, titles_are_similar, group_similar_titles
 from app.scrapers import get_scraper, ScrapedArticle
 from app.scrapers.sources_config import SOURCES
 
@@ -156,6 +156,43 @@ async def _scrape_source(source: Source, db: Session) -> tuple[int, int]:
     return found, new
 
 
+def _deduplicate_cross_source(db: Session) -> int:
+    """Reject pending_ai articles that duplicate stories already seen (cross-source). Returns count rejected."""
+    pending = (
+        db.query(Article)
+        .filter(Article.status == "pending_ai", Article.ai_processed.is_(False))
+        .order_by(Article.created_at.asc())
+        .all()
+    )
+    if not pending:
+        return 0
+
+    recent_cutoff = datetime.utcnow() - timedelta(hours=48)
+    existing_titles: list[str] = [
+        row[0] for row in db.query(Article.title).filter(
+            Article.status.in_(["published", "pending_human"]),
+            Article.created_at >= recent_cutoff,
+        ).all()
+    ]
+
+    rejected = 0
+    for article in pending:
+        if any(titles_are_similar(article.title, t, threshold=0.65) for t in existing_titles):
+            article.status = "rejected_ai"
+            article.rejection_reason = "Cross-source duplicate"
+            article.ai_processed = True
+            article.ai_processed_at = datetime.utcnow()
+            rejected += 1
+        else:
+            existing_titles.append(article.title)
+
+    if rejected:
+        db.commit()
+        logger.info("Cross-source dedup rejected %d articles", rejected)
+
+    return rejected
+
+
 async def _ai_process_pending(db: Session) -> int:
     """Process all pending_ai articles in batches. Returns count processed."""
     pending = (
@@ -190,16 +227,21 @@ async def _ai_process_pending(db: Session) -> int:
 
 
 def _flag_featured(db: Session) -> None:
-    """Mark top articles of the past 24h as featured."""
+    """Mark top articles of the past 24h as featured, ranked by combined relevance+impact score."""
+    from sqlalchemy import func as sqlfunc
     cutoff = datetime.utcnow() - timedelta(hours=24)
+    combined = (
+        sqlfunc.coalesce(Article.relevance_score, 0) * 0.6
+        + sqlfunc.coalesce(Article.impact_score, 0) * 0.4
+    )
     top = (
         db.query(Article)
         .filter(
             Article.status == "published",
-            Article.relevance_score >= FEATURE_MIN_SCORE,
+            combined >= FEATURE_MIN_SCORE,
             Article.published_at >= cutoff,
         )
-        .order_by(Article.relevance_score.desc())
+        .order_by(combined.desc())
         .limit(TOP_FEATURED)
         .all()
     )
@@ -234,6 +276,9 @@ async def run_scrape_pipeline(source_slug: str = "all") -> dict:
         progress.emit(f"Toplam {total_new} yeni makale bulundu", kind="scrape")
 
         if total_new > 0:
+            deduped = _deduplicate_cross_source(db)
+            if deduped:
+                progress.emit(f"{deduped} çapraz-kaynak tekrarı elendi", kind="info")
             progress.emit("AI analizi başlıyor…", kind="info")
 
         # AI processing — async so sleeps yield to event loop (SSE flush)

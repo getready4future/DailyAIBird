@@ -31,3 +31,29 @@ def titles_are_similar(a: str, b: str, threshold: float = 0.85) -> bool:
     b = re.sub(r"[^\w\s]", "", b.lower())
     ratio = difflib.SequenceMatcher(None, a, b).ratio()
     return ratio >= threshold
+
+
+def group_similar_titles(titles: list[str], threshold: float = 0.65) -> list[list[int]]:
+    """Group title indices that are near-duplicates. Returns list of groups (each group ≥ 2 items)."""
+    n = len(titles)
+    parent = list(range(n))
+
+    def find(i: int) -> int:
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    for i in range(n):
+        for j in range(i + 1, n):
+            if titles_are_similar(titles[i], titles[j], threshold):
+                ri, rj = find(i), find(j)
+                if ri != rj:
+                    parent[ri] = rj
+
+    clusters: dict[int, list[int]] = {}
+    for i in range(n):
+        root = find(i)
+        clusters.setdefault(root, []).append(i)
+
+    return [group for group in clusters.values() if len(group) > 1]

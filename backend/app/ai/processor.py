@@ -78,8 +78,10 @@ def process_article(article: Article, source_name: str, db: Session, *, context_
     cons_r     = float(result_a.get("consumer_relevance_score", 0))
     confidence = float(result_a.get("confidence_score", 0))
 
-    article.quality_score    = (src_q + confidence) / 10
-    article.relevance_score  = cons_r / 5
+    # quality_score = how confident AI is that this is a good, verifiable article (0–1)
+    article.quality_score    = confidence / 5
+    # relevance_score = weighted blend: reader relevance (60%) + source authority (40%)
+    article.relevance_score  = (0.6 * cons_r + 0.4 * src_q) / 5
     article.topic            = result_a.get("topic") or None
     article.sentiment        = result_a.get("sentiment") or "neutral"
     article.flags            = json.dumps([])

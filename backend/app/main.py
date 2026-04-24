@@ -54,12 +54,14 @@ DEFAULT_SOURCE_SLUGS = [
     "openai-news", "anthropic-news", "deepmind-blog", "google-ai-blog",
     "meta-ai-blog", "microsoft-ai-blog", "huggingface-blog",
     # Tech news
-    "techcrunch-ai", "the-verge-ai", "venturebeat-ai", "wired-ai",
+    "techcrunch-ai", "verge-ai", "venturebeat-ai", "wired-ai",
     "mit-tech-review-ai", "ars-technica-ai",
     # Community
     "hackernews-ai", "reddit-ml", "reddit-artificial",
     # Research
     "arxiv-cs-ai", "arxiv-cs-lg",
+    # Policy & Safety
+    "fli-news", "ai-safety-newsletter", "stanford-hai",
 ]
 
 
