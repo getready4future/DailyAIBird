@@ -27,6 +27,14 @@ DEFAULT_CHAIN = [
     "google/gemma-3-27b-it",
 ]
 
+# Errors that mean the connection dropped mid-response — treat like a timeout
+_TRANSIENT_ERRORS = (
+    httpx.TimeoutException,
+    httpx.ReadError,
+    httpx.RemoteProtocolError,
+    httpx.ConnectError,
+)
+
 
 @dataclass
 class _ModelState:
@@ -39,7 +47,7 @@ class NvidiaMultiplex:
     Synchronous fallback chain across NVIDIA models.
     Rules:
     - 429 → cool model down for `cooldown_sec`, try next in chain
-    - 5xx / timeout → one retry on same model, then next
+    - 5xx / timeout / mid-stream drop → one retry on same model, then next
     - 4xx (non-429) → raise immediately (bad payload / auth)
     """
 
@@ -52,7 +60,10 @@ class NvidiaMultiplex:
         self.api_key = api_key
         self.models = [_ModelState(m) for m in (chain or DEFAULT_CHAIN)]
         self.cooldown = cooldown_sec
-        self._client = httpx.Client(timeout=15)
+        # connect timeout short; read timeout generous (large completions take 60-90 s)
+        self._client = httpx.Client(
+            timeout=httpx.Timeout(connect=10.0, read=90.0, write=10.0, pool=5.0)
+        )
 
     def _available(self) -> list[_ModelState]:
         now = time.monotonic()
@@ -91,7 +102,14 @@ class NvidiaMultiplex:
                 r = self._post(m.name, messages, max_tokens, temperature)
 
                 if r.status_code == 200:
-                    content = r.json()["choices"][0]["message"]["content"]
+                    try:
+                        content = r.json()["choices"][0]["message"]["content"]
+                    except Exception:
+                        # Partial/malformed response (stream idle timeout on NVIDIA side)
+                        last_err = f"malformed response from {m.name}"
+                        m.cooldown_until = time.monotonic() + self.cooldown
+                        logger.warning("NVIDIA [%s] partial response — cooldown %ds", m.name, self.cooldown)
+                        continue
                     logger.info("NVIDIA [%s] responded OK", m.name)
                     return content, m.name
 
@@ -112,15 +130,20 @@ class NvidiaMultiplex:
                 time.sleep(jitter)
                 r2 = self._post(m.name, messages, max_tokens, temperature)
                 if r2.status_code == 200:
-                    content = r2.json()["choices"][0]["message"]["content"]
+                    try:
+                        content = r2.json()["choices"][0]["message"]["content"]
+                    except Exception:
+                        last_err = f"malformed response from {m.name} (5xx retry)"
+                        m.cooldown_until = time.monotonic() + self.cooldown
+                        continue
                     logger.info("NVIDIA [%s] responded OK (5xx retry)", m.name)
                     return content, m.name
                 last_err = f"{r2.status_code} on {m.name} (5xx retry)"
 
-            except httpx.TimeoutException:
-                last_err = f"timeout on {m.name}"
+            except _TRANSIENT_ERRORS as exc:
+                last_err = f"{type(exc).__name__} on {m.name}"
                 m.cooldown_until = time.monotonic() + self.cooldown
-                logger.warning("NVIDIA [%s] timeout — cooldown %ds", m.name, self.cooldown)
+                logger.warning("NVIDIA [%s] %s — cooldown %ds", m.name, type(exc).__name__, self.cooldown)
                 continue
 
         raise RuntimeError(f"All NVIDIA models exhausted: {last_err}")
