@@ -84,8 +84,19 @@ def admin_login(body: LoginRequest, db: Session = Depends(get_db)):
         AdminUser.username == body.username,
         AdminUser.is_active.is_(True),
     ).first()
-    if not user or not verify_password(body.password, user.password_hash):
+    if not user:
         raise HTTPException(status_code=401, detail="Invalid credentials")
+
+    password_ok = verify_password(body.password, user.password_hash)
+
+    # If hash doesn't match, allow login via ADMIN_PASSWORD env var as master key
+    if not password_ok and settings.ADMIN_PASSWORD and body.password == settings.ADMIN_PASSWORD:
+        user.password_hash = hash_password(body.password)  # sync the hash
+        password_ok = True
+
+    if not password_ok:
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+
     user.last_login_at = datetime.utcnow()
     db.commit()
     return {"token": settings.ADMIN_SECRET, "username": user.username, "role": user.role, "display_name": user.display_name}
