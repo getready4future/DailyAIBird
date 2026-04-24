@@ -15,3 +15,17 @@ class SourceOut(BaseModel):
     is_active: bool
 
     model_config = {"from_attributes": True}
+
+
+class SourceAdminOut(SourceOut):
+    max_articles: Optional[int]
+    context_prompt: Optional[str]
+    cron_schedule: Optional[str]
+    created_at: datetime
+
+
+class SourceUpdate(BaseModel):
+    is_active: Optional[bool] = None
+    max_articles: Optional[int] = None
+    context_prompt: Optional[str] = None
+    cron_schedule: Optional[str] = None

@@ -1,14 +1,11 @@
 import { useState, useEffect, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { formatDistanceToNow, format } from 'date-fns'
-import { fetchQueue, approveArticle, rejectArticle, triggerScrape, triggerDigest } from '../api/admin'
+import { fetchQueue, approveArticle, rejectArticle, triggerScrape, triggerDigest, getScrapeEventsUrl } from '../api/admin'
 import type { ArticleAdmin } from '../types'
 import TopicBadge from '../components/ui/TopicBadge'
 import Spinner from '../components/ui/Spinner'
 import EmptyState from '../components/ui/EmptyState'
-
-const BASE_URL = import.meta.env.VITE_API_URL || ''
-const ADMIN_TOKEN = import.meta.env.VITE_ADMIN_TOKEN || ''
 
 type ScrapeEvent = {
   message: string
@@ -162,7 +159,7 @@ function ScrapePanel({ onClose, onDone }: { onClose: () => void; onDone: () => v
   const bottomRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    const url = `${BASE_URL}/api/v1/admin/scrape-events?token=${encodeURIComponent(ADMIN_TOKEN)}`
+    const url = getScrapeEventsUrl()
     const es = new EventSource(url)
     es.onmessage = (e) => {
       const event: ScrapeEvent = JSON.parse(e.data)
@@ -443,29 +440,27 @@ export default function AdminQueue() {
         </>
       )}
 
-      {/* Admin header bar */}
-      <div className="mb-8 rounded-2xl bg-gray-950 px-6 py-5">
-        <div className="flex items-center justify-between gap-4">
-          <div>
-            <p className="text-[10px] font-bold tracking-widest text-gray-500 uppercase mb-1">Daily AI Bird</p>
-            <h1 className="text-xl font-bold text-white">Moderation Queue</h1>
-          </div>
-          <div className="flex gap-2.5">
-            <button
-              onClick={() => digestMut.mutate()}
-              disabled={digestMut.isPending}
-              className="rounded-lg border border-gray-700 px-4 py-2 text-xs font-semibold text-gray-300 hover:border-gray-500 hover:text-white disabled:opacity-40 transition"
-            >
-              {digestMut.isPending ? 'Generating…' : 'Generate Digest'}
-            </button>
-            <button
-              onClick={() => scrapeMut.mutate('all')}
-              disabled={scrapeMut.isPending}
-              className="rounded-lg bg-brand-600 px-4 py-2 text-xs font-bold text-white hover:bg-brand-500 disabled:opacity-50 transition"
-            >
-              {scrapeMut.isPending ? 'Starting…' : '↓ Run Scrape'}
-            </button>
-          </div>
+      {/* Page header */}
+      <div className="mb-6 flex items-center justify-between gap-4">
+        <div>
+          <p className="text-[10px] font-bold tracking-widest text-gray-400 uppercase mb-1">Moderation</p>
+          <h1 className="text-2xl font-bold text-white">Queue</h1>
+        </div>
+        <div className="flex gap-2.5">
+          <button
+            onClick={() => digestMut.mutate()}
+            disabled={digestMut.isPending}
+            className="rounded-lg border border-gray-700 px-4 py-2 text-xs font-semibold text-gray-300 hover:border-gray-500 hover:text-white disabled:opacity-40 transition"
+          >
+            {digestMut.isPending ? 'Generating…' : 'Generate Digest'}
+          </button>
+          <button
+            onClick={() => scrapeMut.mutate('all')}
+            disabled={scrapeMut.isPending}
+            className="rounded-lg bg-brand-600 px-4 py-2 text-xs font-bold text-white hover:bg-brand-500 disabled:opacity-50 transition"
+          >
+            {scrapeMut.isPending ? 'Starting…' : '↓ Run Scrape'}
+          </button>
         </div>
       </div>
 

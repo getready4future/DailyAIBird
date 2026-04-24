@@ -12,6 +12,8 @@ from app.database import Base
 logging.basicConfig(level=getattr(logging, settings.LOG_LEVEL, logging.INFO))
 logger = logging.getLogger(__name__)
 
+scheduler = None  # set during lifespan, referenced by admin router
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -21,6 +23,7 @@ async def lifespan(app: FastAPI):
 
     # Start scheduler
     from app.scheduler.jobs import create_scheduler
+    global scheduler
     scheduler = create_scheduler()
     scheduler.start()
     logger.info("Scheduler started")

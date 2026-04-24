@@ -15,12 +15,17 @@ class Source(Base):
     slug: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
     url: Mapped[str] = mapped_column(String(500), nullable=False)
     feed_url: Mapped[Optional[str]] = mapped_column(String(500))
-    scraper_type: Mapped[str] = mapped_column(String(50), nullable=False)  # rss|bs4|playwright|api
-    category: Mapped[str] = mapped_column(String(50), nullable=False)     # blog|news|research|social
+    scraper_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    category: Mapped[str] = mapped_column(String(50), nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     last_scraped_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
     scrape_config: Mapped[Optional[str]] = mapped_column(Text)  # JSON string
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    # Configurable per-source settings
+    max_articles: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    context_prompt: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    cron_schedule: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
 
     articles = relationship("Article", back_populates="source")
     scrape_runs = relationship("ScrapeRun", back_populates="source")

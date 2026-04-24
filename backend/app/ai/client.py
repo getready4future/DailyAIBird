@@ -9,15 +9,19 @@ logger = logging.getLogger(__name__)
 _nvidia_mx = None
 _openai_client = None
 
+# Public alias so admin router can inspect model states
+_multiplex = None
+
 # Exposed so digest_generator.py can log the model name
 MODEL = settings.AI_MODEL
 
 
 def _get_nvidia():
-    global _nvidia_mx
+    global _nvidia_mx, _multiplex
     if _nvidia_mx is None:
         from app.ai.nvidia_multiplex import NvidiaMultiplex
         _nvidia_mx = NvidiaMultiplex(api_key=settings.NVIDIA_API_KEY)
+        _multiplex = _nvidia_mx
     return _nvidia_mx
 
 

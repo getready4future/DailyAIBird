@@ -88,6 +88,7 @@ async def _scrape_source(source: Source, db: Session) -> tuple[int, int]:
             .all()
         ]
 
+        max_articles = source.max_articles if source.max_articles is not None else settings.MAX_ARTICLES_PER_SOURCE
         for article in articles[:max_articles]:
             # Skip old articles
             if article.published_at and article.published_at < cutoff:
@@ -175,8 +176,9 @@ def _ai_process_pending(db: Session) -> int:
         batch = pending[i: i + batch_size]
         for article in batch:
             source_name = article.source.name if article.source else "Unknown"
+            context_prompt = article.source.context_prompt if article.source else None
             try:
-                process_article(article, source_name, db)
+                process_article(article, source_name, db, context_prompt=context_prompt)
                 processed += 1
             except Exception as exc:
                 logger.error("AI processing failed for article %d: %s", article.id, exc)

@@ -23,7 +23,7 @@ export default function Header() {
             to="/admin"
             className="rounded-md bg-gray-800 px-3 py-1.5 text-xs font-medium text-gray-300 hover:bg-gray-700 hover:text-white transition"
           >
-            Admin
+            Admin →
           </NavLink>
         </nav>
       </div>

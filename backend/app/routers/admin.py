@@ -5,10 +5,13 @@ from datetime import datetime
 
 import asyncio
 import json
+import os
+import time
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Security
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Security
 from fastapi.responses import StreamingResponse
 from fastapi.security import APIKeyHeader
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.config import settings
@@ -16,17 +19,129 @@ from app.database import get_db
 from app.models.article import Article
 from app.models.daily_digest import DailyDigest
 from app.models.scrape_run import ScrapeRun
+from app.models.source import Source
 from app.schemas.article import ArticleAdminOut, ApproveRequest, RejectRequest
 from app.schemas.digest import DigestOut
+from app.schemas.source import SourceAdminOut, SourceUpdate
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
 _api_key_header = APIKeyHeader(name="X-Admin-Token", auto_error=False)
 
+ADMIN_USERNAME = "admin"
+ADMIN_PASSWORD = "Burak"
+SCHEDULE_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "data", "schedule.json")
+
 
 def _check_token(token: str = Security(_api_key_header)):
     if token != settings.ADMIN_SECRET:
         raise HTTPException(status_code=401, detail="Invalid admin token")
+
+
+# ── Authentication ────────────────────────────────────────────────────────────
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+
+@router.post("/login")
+def admin_login(body: LoginRequest):
+    if body.username != ADMIN_USERNAME or body.password != ADMIN_PASSWORD:
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+    return {"token": settings.ADMIN_SECRET, "username": body.username}
+
+
+# ── Source Management ─────────────────────────────────────────────────────────
+
+@router.get("/sources", response_model=list[SourceAdminOut], dependencies=[Depends(_check_token)])
+def list_sources(db: Session = Depends(get_db)):
+    return db.query(Source).order_by(Source.name).all()
+
+
+@router.patch("/sources/{source_id}", response_model=SourceAdminOut, dependencies=[Depends(_check_token)])
+def update_source(source_id: int, body: SourceUpdate, db: Session = Depends(get_db)):
+    source = db.query(Source).filter(Source.id == source_id).first()
+    if not source:
+        raise HTTPException(status_code=404, detail="Source not found")
+    for field, value in body.model_dump(exclude_unset=True).items():
+        setattr(source, field, value)
+    db.commit()
+    db.refresh(source)
+    return source
+
+
+# ── AI Models Status ──────────────────────────────────────────────────────────
+
+@router.get("/models", dependencies=[Depends(_check_token)])
+def get_models_status():
+    from app.ai.client import _multiplex
+    if _multiplex is None:
+        return []
+    now = time.monotonic()
+    return [
+        {
+            "name": m.name,
+            "status": "cooldown" if m.cooldown_until > now else "available",
+            "cooldown_remaining_sec": max(0.0, round(m.cooldown_until - now, 1)),
+        }
+        for m in _multiplex.models
+    ]
+
+
+# ── Scheduler Config ──────────────────────────────────────────────────────────
+
+def _read_schedule() -> dict:
+    if os.path.exists(SCHEDULE_FILE):
+        with open(SCHEDULE_FILE) as f:
+            return json.load(f)
+    return {
+        "scrape_hour": settings.SCRAPE_SCHEDULE_HOUR,
+        "scrape_minute": 0,
+        "digest_hour": settings.DIGEST_SCHEDULE_HOUR,
+        "digest_minute": 15,
+        "enabled": True,
+    }
+
+
+def _write_schedule(config: dict) -> None:
+    os.makedirs(os.path.dirname(SCHEDULE_FILE), exist_ok=True)
+    with open(SCHEDULE_FILE, "w") as f:
+        json.dump(config, f)
+
+
+@router.get("/scheduler", dependencies=[Depends(_check_token)])
+def get_scheduler():
+    return _read_schedule()
+
+
+@router.put("/scheduler", dependencies=[Depends(_check_token)])
+def update_scheduler(config: dict = Body(...)):
+    allowed = {"scrape_hour", "scrape_minute", "digest_hour", "digest_minute", "enabled"}
+    filtered = {k: v for k, v in config.items() if k in allowed}
+    current = _read_schedule()
+    current.update(filtered)
+    _write_schedule(current)
+
+    # Reschedule running APScheduler jobs if scheduler is available
+    try:
+        from app.main import scheduler as _sched
+        from apscheduler.triggers.cron import CronTrigger
+        from app.scheduler.jobs import _run_scrape, _run_digest
+
+        if _sched and _sched.running:
+            _sched.reschedule_job(
+                "daily_scrape",
+                trigger=CronTrigger(hour=current["scrape_hour"], minute=current.get("scrape_minute", 0)),
+            )
+            _sched.reschedule_job(
+                "daily_digest",
+                trigger=CronTrigger(hour=current["digest_hour"], minute=current.get("digest_minute", 15)),
+            )
+    except Exception:
+        pass  # scheduler not running or job not found — config saved, applies on restart
+
+    return current
 
 
 # ── Moderation Queue ──────────────────────────────────────────────────────────

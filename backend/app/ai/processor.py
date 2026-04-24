@@ -34,7 +34,7 @@ def _parse_json(text: str) -> dict:
     return json.loads(text)
 
 
-def process_article(article: Article, source_name: str, db: Session) -> None:
+def process_article(article: Article, source_name: str, db: Session, *, context_prompt: str | None = None) -> None:
     """Run Call A then optionally Call B on a single article, updating it in-place."""
     from app.ai import progress
 
@@ -118,12 +118,13 @@ def process_article(article: Article, source_name: str, db: Session) -> None:
     progress.emit(article.title, kind="rewriting", url=article.url)
 
     # ── Call B: Full Article Rewrite (unchanged) ──────────────────────────────
+    extra_instructions = f"\n\nSource-specific guidance: {context_prompt}" if context_prompt else ""
     prompt_b = ENRICH_PROMPT.format(
         title=article.title,
         source_name=source_name,
         content=content,
         why_it_matters=why_it_matters,
-    )
+    ) + extra_instructions
     try:
         raw_b = call_claude(prompt_b, max_tokens=1200)
         result_b = _parse_json(raw_b)
