@@ -5,10 +5,14 @@ class Settings(BaseSettings):
     DATABASE_URL: str = "sqlite:///./data/dailyaibird.db"
     ADMIN_SECRET: str = "change-me-in-production"
 
-    # NVIDIA Build API (primary — multiplex fallback chain)
+    # OpenRouter — primary provider (Gemma, Claude, etc.)
+    OPENROUTER_API_KEY: str = ""
+    OPENROUTER_MODEL: str = "google/gemma-4-31b-it:free"
+
+    # NVIDIA Build API — secondary (multiplex fallback chain)
     NVIDIA_API_KEY: str = ""
 
-    # Fallback: OpenAI-compatible provider (Groq, Gemini, etc.)
+    # Generic OpenAI-compatible fallback (Groq, etc.)
     AI_API_KEY: str = ""
     AI_MODEL: str = "llama-3.1-8b-instant"
     AI_BASE_URL: str = "https://api.groq.com/openai/v1"

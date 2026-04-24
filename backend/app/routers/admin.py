@@ -198,18 +198,31 @@ def update_source(source_id: int, body: SourceUpdate, db: Session = Depends(get_
 
 @router.get("/models", dependencies=[Depends(_check_token)])
 def get_models_status():
-    from app.ai.client import _multiplex
-    if _multiplex is None:
-        return []
-    now = time.monotonic()
-    return [
-        {
-            "name": m.name,
-            "status": "cooldown" if m.cooldown_until > now else "available",
-            "cooldown_remaining_sec": max(0.0, round(m.cooldown_until - now, 1)),
-        }
-        for m in _multiplex.models
-    ]
+    from app.ai.client import _multiplex, _openrouter_ok
+    result = []
+
+    # OpenRouter (primary)
+    if settings.OPENROUTER_API_KEY:
+        result.append({
+            "name": f"[OpenRouter] {settings.OPENROUTER_MODEL}",
+            "status": "available" if _openrouter_ok else "cooldown",
+            "cooldown_remaining_sec": 0.0,
+            "role": "primary",
+        })
+
+    # NVIDIA multiplex chain (secondary)
+    if _multiplex is not None:
+        now = time.monotonic()
+        for m in _multiplex.models:
+            remaining = max(0.0, round(m.cooldown_until - now, 1))
+            result.append({
+                "name": f"[NVIDIA] {m.name}",
+                "status": "cooldown" if m.cooldown_until > now else "available",
+                "cooldown_remaining_sec": remaining,
+                "role": "fallback",
+            })
+
+    return result
 
 
 # ── Scheduler Config ──────────────────────────────────────────────────────────
