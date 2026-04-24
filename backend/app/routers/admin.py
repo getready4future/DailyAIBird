@@ -32,8 +32,6 @@ router = APIRouter(prefix="/admin", tags=["admin"])
 
 _api_key_header = APIKeyHeader(name="X-Admin-Token", auto_error=False)
 
-SCHEDULE_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "data", "schedule.json")
-
 
 def _check_token(token: str = Security(_api_key_header)):
     if token != settings.ADMIN_SECRET:
@@ -307,69 +305,37 @@ def set_ai_provider(body: dict):
 
 @router.get("/config", dependencies=[Depends(_check_token)])
 def get_app_config():
-    from app.config_store import load, get_max_articles_per_source
-    cfg = load()
-    return {
-        "max_articles_per_source": get_max_articles_per_source(),
-        **{k: v for k, v in cfg.items() if k != "max_articles_per_source"},
-    }
+    from app.config_store import get_max_articles_per_source
+    return {"max_articles_per_source": get_max_articles_per_source()}
 
 
 @router.patch("/config", dependencies=[Depends(_check_token)])
 def update_app_config(body: dict = Body(...)):
-    from app.config_store import load, save
-    allowed = {"max_articles_per_source"}
-    cfg = load()
-    for key in allowed:
-        if key in body:
-            val = body[key]
-            if key == "max_articles_per_source":
-                val = max(1, int(val))
-            cfg[key] = val
-    save(cfg)
-    from app.config_store import get_max_articles_per_source
+    from app.config_store import set_setting, get_max_articles_per_source
+    if "max_articles_per_source" in body:
+        set_setting("max_articles_per_source", max(1, int(body["max_articles_per_source"])))
     return {"max_articles_per_source": get_max_articles_per_source()}
 
 
 # ── Scheduler Config ──────────────────────────────────────────────────────────
 
-def _read_schedule() -> dict:
-    if os.path.exists(SCHEDULE_FILE):
-        with open(SCHEDULE_FILE) as f:
-            return json.load(f)
-    return {
-        "scrape_hour": settings.SCRAPE_SCHEDULE_HOUR,
-        "scrape_minute": 0,
-        "digest_hour": settings.DIGEST_SCHEDULE_HOUR,
-        "digest_minute": 15,
-        "enabled": True,
-    }
-
-
-def _write_schedule(config: dict) -> None:
-    os.makedirs(os.path.dirname(SCHEDULE_FILE), exist_ok=True)
-    with open(SCHEDULE_FILE, "w") as f:
-        json.dump(config, f)
-
-
 @router.get("/scheduler", dependencies=[Depends(_check_token)])
 def get_scheduler():
-    return _read_schedule()
+    from app.config_store import get_schedule
+    return get_schedule()
 
 
 @router.put("/scheduler", dependencies=[Depends(_check_token)])
 def update_scheduler(config: dict = Body(...)):
+    from app.config_store import save_schedule, get_schedule
     allowed = {"scrape_hour", "scrape_minute", "digest_hour", "digest_minute", "enabled"}
-    filtered = {k: v for k, v in config.items() if k in allowed}
-    current = _read_schedule()
-    current.update(filtered)
-    _write_schedule(current)
+    save_schedule({k: v for k, v in config.items() if k in allowed})
+    current = get_schedule()
 
     # Reschedule running APScheduler jobs if scheduler is available
     try:
         from app.main import scheduler as _sched
         from apscheduler.triggers.cron import CronTrigger
-        from app.scheduler.jobs import _run_scrape, _run_digest
 
         if _sched and _sched.running:
             _sched.reschedule_job(
