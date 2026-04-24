@@ -490,8 +490,11 @@ function AddSourceForm({ onClose }: { onClose: () => void }) {
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 
+type TabId = 'active' | 'paused'
+
 export default function AdminSources() {
   const qc = useQueryClient()
+  const [tab, setTab]             = useState<TabId>('active')
   const [showAdd, setShowAdd]     = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
   const [pipeline, setPipeline]   = useState<{ open: boolean; label: string; key: number }>({
@@ -508,6 +511,15 @@ export default function AdminSources() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['admin-sources'] }),
   })
 
+  const activeSources = sources.filter((s) => s.is_active)
+  const pausedSources = sources.filter((s) => !s.is_active)
+  const visibleSources = tab === 'active' ? activeSources : pausedSources
+
+  function switchTab(next: TabId) {
+    setTab(next)
+    setSelectedIds(new Set())
+  }
+
   function toggleSelect(id: number) {
     setSelectedIds((prev) => {
       const next = new Set(prev)
@@ -517,10 +529,10 @@ export default function AdminSources() {
   }
 
   function toggleSelectAll() {
-    if (selectedIds.size === sources.length) {
+    if (selectedIds.size === visibleSources.length) {
       setSelectedIds(new Set())
     } else {
-      setSelectedIds(new Set(sources.map((s) => s.id)))
+      setSelectedIds(new Set(visibleSources.map((s) => s.id)))
     }
   }
 
@@ -530,18 +542,16 @@ export default function AdminSources() {
   }
 
   async function handleScrapeSelected() {
-    const selected = sources.filter((s) => selectedIds.has(s.id))
+    const selected = visibleSources.filter((s) => selectedIds.has(s.id))
     if (!selected.length) return
     const label = selected.length === 1
       ? selected[0].name
       : `${selected.length} sources`
-    // Trigger all selected sources
     await Promise.all(selected.map((s) => triggerScrape(s.slug)))
     setPipeline((p) => ({ open: true, label, key: p.key + 1 }))
   }
 
-  const activeCount  = sources.filter((s) => s.is_active).length
-  const allSelected  = sources.length > 0 && selectedIds.size === sources.length
+  const allSelected  = visibleSources.length > 0 && selectedIds.size === visibleSources.length
   const someSelected = selectedIds.size > 0
 
   return (
@@ -556,7 +566,7 @@ export default function AdminSources() {
           <div className="flex items-center gap-3">
             <div className="text-right">
               <p className="text-2xl font-bold text-white">
-                {activeCount}<span className="text-gray-600">/{sources.length}</span>
+                {activeSources.length}<span className="text-gray-600">/{sources.length}</span>
               </p>
               <p className="text-[10px] uppercase tracking-widest text-gray-500">Active</p>
             </div>
@@ -573,6 +583,42 @@ export default function AdminSources() {
       </div>
 
       {showAdd && <AddSourceForm onClose={() => setShowAdd(false)} />}
+
+      {/* Tabs */}
+      <div className="mb-4 flex items-center gap-1 rounded-xl border border-gray-800 bg-gray-900 p-1 w-fit">
+        <button
+          onClick={() => switchTab('active')}
+          className={`flex items-center gap-2 rounded-lg px-4 py-1.5 text-xs font-bold transition ${
+            tab === 'active'
+              ? 'bg-emerald-900/50 text-emerald-300'
+              : 'text-gray-500 hover:text-gray-300'
+          }`}
+        >
+          <span className={`h-1.5 w-1.5 rounded-full ${tab === 'active' ? 'bg-emerald-400' : 'bg-gray-600'}`} />
+          Active
+          <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-bold tabular-nums ${
+            tab === 'active' ? 'bg-emerald-800/60 text-emerald-300' : 'bg-gray-800 text-gray-500'
+          }`}>
+            {activeSources.length}
+          </span>
+        </button>
+        <button
+          onClick={() => switchTab('paused')}
+          className={`flex items-center gap-2 rounded-lg px-4 py-1.5 text-xs font-bold transition ${
+            tab === 'paused'
+              ? 'bg-gray-700/60 text-gray-200'
+              : 'text-gray-500 hover:text-gray-300'
+          }`}
+        >
+          <span className={`h-1.5 w-1.5 rounded-full ${tab === 'paused' ? 'bg-gray-400' : 'bg-gray-700'}`} />
+          Paused
+          <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-bold tabular-nums ${
+            tab === 'paused' ? 'bg-gray-600/60 text-gray-300' : 'bg-gray-800 text-gray-600'
+          }`}>
+            {pausedSources.length}
+          </span>
+        </button>
+      </div>
 
       {/* Selection toolbar */}
       <div className="mb-4 flex flex-wrap items-center gap-3">
@@ -591,12 +637,25 @@ export default function AdminSources() {
         {someSelected && (
           <>
             <span className="text-xs text-gray-500">{selectedIds.size} selected</span>
-            <button
-              onClick={handleScrapeSelected}
-              className="rounded-lg bg-brand-600 px-4 py-1.5 text-xs font-bold text-white transition hover:bg-brand-500"
-            >
-              ↓ Scrape Selected ({selectedIds.size})
-            </button>
+            {tab === 'active' && (
+              <button
+                onClick={handleScrapeSelected}
+                className="rounded-lg bg-brand-600 px-4 py-1.5 text-xs font-bold text-white transition hover:bg-brand-500"
+              >
+                ↓ Scrape Selected ({selectedIds.size})
+              </button>
+            )}
+            {tab === 'paused' && (
+              <button
+                onClick={() => {
+                  selectedIds.forEach((id) => updateMut.mutate({ id, data: { is_active: true } }))
+                  setSelectedIds(new Set())
+                }}
+                className="rounded-lg border border-emerald-800 px-4 py-1.5 text-xs font-bold text-emerald-400 transition hover:border-emerald-600 hover:bg-emerald-950/30"
+              >
+                Enable Selected ({selectedIds.size})
+              </button>
+            )}
             <button
               onClick={() => setSelectedIds(new Set())}
               className="text-xs text-gray-600 hover:text-gray-400 transition"
@@ -609,9 +668,23 @@ export default function AdminSources() {
 
       {isLoading ? (
         <div className="flex justify-center py-20"><Spinner size="lg" /></div>
+      ) : visibleSources.length === 0 ? (
+        <div className="flex flex-col items-center gap-3 rounded-2xl border border-gray-800 bg-gray-900/50 py-16 text-center">
+          <span className="text-3xl opacity-20">
+            {tab === 'active' ? '📡' : '⏸'}
+          </span>
+          <p className="text-sm font-semibold text-gray-500">
+            {tab === 'active' ? 'No active sources' : 'No paused sources'}
+          </p>
+          <p className="text-xs text-gray-600">
+            {tab === 'active'
+              ? 'Add a source or re-enable one from the Paused tab.'
+              : 'Pause a source from the Active tab to see it here.'}
+          </p>
+        </div>
       ) : (
         <div className="grid gap-4 lg:grid-cols-2">
-          {sources.map((source) => (
+          {visibleSources.map((source) => (
             <SourceCard
               key={source.id}
               source={source}
