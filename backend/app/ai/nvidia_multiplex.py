@@ -119,7 +119,8 @@ class NvidiaMultiplex:
 
             except httpx.TimeoutException:
                 last_err = f"timeout on {m.name}"
-                logger.warning("NVIDIA [%s] timeout", m.name)
+                m.cooldown_until = time.monotonic() + self.cooldown
+                logger.warning("NVIDIA [%s] timeout — cooldown %ds", m.name, self.cooldown)
                 continue
 
         raise RuntimeError(f"All NVIDIA models exhausted: {last_err}")
