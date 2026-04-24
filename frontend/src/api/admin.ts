@@ -84,6 +84,21 @@ export const updateSource = async (id: number, update: Partial<AdminSource>): Pr
   return data
 }
 
+export interface SourceTestArticle {
+  title: string
+  url: string
+  author: string | null
+  published_at: string | null
+  image_url: string | null
+  summary: string
+  tags: string[]
+}
+
+export const testSource = async (id: number): Promise<SourceTestArticle[]> => {
+  const { data } = await adminApi.post<SourceTestArticle[]>(`/admin/sources/${id}/test`)
+  return data
+}
+
 // ── Models ────────────────────────────────────────────────────────────────────
 
 export interface ModelStatus {

@@ -147,6 +147,41 @@ def list_sources(db: Session = Depends(get_db)):
     return db.query(Source).order_by(Source.name).all()
 
 
+@router.post("/sources/{source_id}/test", dependencies=[Depends(_check_token)])
+async def test_source(source_id: int, db: Session = Depends(get_db)):
+    """Dry-run the scraper for a source and return up to 3 sample articles (not saved)."""
+    source = db.query(Source).filter(Source.id == source_id).first()
+    if not source:
+        raise HTTPException(status_code=404, detail="Source not found")
+
+    from app.scrapers import get_scraper
+    cfg = {
+        "slug": source.slug,
+        "url": source.url,
+        "feed_url": source.feed_url,
+        "scraper_type": source.scraper_type,
+        "scrape_config": json.loads(source.scrape_config or "{}"),
+    }
+    scraper = get_scraper(cfg)
+    try:
+        articles = await scraper.fetch_articles()
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Scraper error: {exc}")
+
+    return [
+        {
+            "title": a.title,
+            "url": a.url,
+            "author": a.author,
+            "published_at": a.published_at,
+            "image_url": a.image_url,
+            "summary": (a.raw_content or "")[:300].strip(),
+            "tags": a.tags,
+        }
+        for a in articles[:3]
+    ]
+
+
 @router.patch("/sources/{source_id}", response_model=SourceAdminOut, dependencies=[Depends(_check_token)])
 def update_source(source_id: int, body: SourceUpdate, db: Session = Depends(get_db)):
     source = db.query(Source).filter(Source.id == source_id).first()

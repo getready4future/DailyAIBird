@@ -1,7 +1,81 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { fetchAdminSources, updateSource, triggerScrape, type AdminSource } from '../api/admin'
+import { formatDistanceToNow } from 'date-fns'
+import { fetchAdminSources, updateSource, triggerScrape, testSource, type AdminSource, type SourceTestArticle } from '../api/admin'
 import Spinner from '../components/ui/Spinner'
+
+// ── Test result panel ─────────────────────────────────────────────────────────
+
+function TestPanel({ articles, onClose }: { articles: SourceTestArticle[]; onClose: () => void }) {
+  if (articles.length === 0) {
+    return (
+      <div className="mt-3 rounded-xl border border-amber-800/40 bg-amber-950/20 px-4 py-4">
+        <div className="flex items-center justify-between mb-2">
+          <p className="text-xs font-semibold text-amber-400">Test Result</p>
+          <button onClick={onClose} className="text-gray-600 hover:text-gray-300 text-sm leading-none">✕</button>
+        </div>
+        <p className="text-xs text-gray-500">No articles returned — the source may be empty or the scraper needs configuration.</p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="mt-3 rounded-xl border border-gray-700 bg-gray-950 overflow-hidden">
+      <div className="flex items-center justify-between px-4 py-2.5 border-b border-gray-800">
+        <p className="text-[10px] font-bold tracking-widest text-gray-400 uppercase">
+          Test Preview — {articles.length} article{articles.length > 1 ? 's' : ''} found
+        </p>
+        <button onClick={onClose} className="rounded p-0.5 text-gray-600 hover:text-gray-300 transition text-sm leading-none">✕</button>
+      </div>
+
+      <div className="divide-y divide-gray-800/60">
+        {articles.map((a, i) => (
+          <div key={i} className="flex gap-3 p-3">
+            {/* Thumbnail */}
+            <div className="shrink-0">
+              {a.image_url ? (
+                <img
+                  src={a.image_url}
+                  alt=""
+                  className="h-16 w-24 rounded-lg object-cover"
+                  onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none' }}
+                />
+              ) : (
+                <div className="h-16 w-24 rounded-lg bg-gray-800 flex items-center justify-center">
+                  <span className="text-xl opacity-20">🐦</span>
+                </div>
+              )}
+            </div>
+
+            {/* Content */}
+            <div className="flex-1 min-w-0">
+              <a
+                href={a.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="block text-sm font-semibold text-gray-100 line-clamp-2 hover:text-brand-400 transition leading-snug mb-1"
+              >
+                {a.title}
+              </a>
+              <div className="flex flex-wrap items-center gap-2 text-[10px] text-gray-600 mb-1.5">
+                {a.author && <span>{a.author}</span>}
+                {a.author && a.published_at && <span>·</span>}
+                {a.published_at && (
+                  <span>{formatDistanceToNow(new Date(a.published_at), { addSuffix: true })}</span>
+                )}
+              </div>
+              {a.summary && (
+                <p className="text-[10px] text-gray-600 line-clamp-2 leading-relaxed">{a.summary}</p>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// ── Source card ───────────────────────────────────────────────────────────────
 
 function SourceCard({ source, onSave, onScrape }: {
   source: AdminSource
@@ -12,6 +86,9 @@ function SourceCard({ source, onSave, onScrape }: {
   const [maxArticles, setMaxArticles] = useState(source.max_articles?.toString() ?? '')
   const [contextPrompt, setContextPrompt] = useState(source.context_prompt ?? '')
   const [cronSchedule, setCronSchedule] = useState(source.cron_schedule ?? '')
+  const [testing, setTesting] = useState(false)
+  const [testResult, setTestResult] = useState<SourceTestArticle[] | null>(null)
+  const [testError, setTestError] = useState('')
 
   function handleSave() {
     onSave(source.id, {
@@ -20,6 +97,20 @@ function SourceCard({ source, onSave, onScrape }: {
       cron_schedule: cronSchedule || null,
     })
     setEditing(false)
+  }
+
+  async function handleTest() {
+    setTesting(true)
+    setTestResult(null)
+    setTestError('')
+    try {
+      const result = await testSource(source.id)
+      setTestResult(result)
+    } catch (err: any) {
+      setTestError(err?.response?.data?.detail || 'Test failed.')
+    } finally {
+      setTesting(false)
+    }
   }
 
   return (
@@ -46,14 +137,16 @@ function SourceCard({ source, onSave, onScrape }: {
         </div>
       </div>
 
-      {/* Stats row */}
-      <div className="flex items-center gap-4 px-5 py-3 text-xs text-gray-500 border-b border-gray-800/50">
+      {/* Stats */}
+      <div className="flex items-center gap-4 px-5 py-2.5 text-xs text-gray-500 border-b border-gray-800/50">
         <span>Max: <span className="text-gray-300 font-medium">{source.max_articles ?? 'default'}</span></span>
         {source.cron_schedule && (
           <span>Cron: <span className="text-gray-300 font-mono">{source.cron_schedule}</span></span>
         )}
         {source.last_scraped_at && (
-          <span className="ml-auto">Last scraped: <span className="text-gray-300">{new Date(source.last_scraped_at).toLocaleString()}</span></span>
+          <span className="ml-auto">
+            {formatDistanceToNow(new Date(source.last_scraped_at), { addSuffix: true })}
+          </span>
         )}
       </div>
 
@@ -69,13 +162,9 @@ function SourceCard({ source, onSave, onScrape }: {
       {editing && (
         <div className="px-5 py-4 space-y-4 border-b border-gray-800">
           <div>
-            <label className="mb-1 block text-[10px] font-bold tracking-widest text-gray-500 uppercase">
-              Max Articles
-            </label>
+            <label className="mb-1 block text-[10px] font-bold tracking-widest text-gray-500 uppercase">Max Articles</label>
             <input
-              type="number"
-              min="1"
-              max="100"
+              type="number" min="1" max="100"
               value={maxArticles}
               onChange={(e) => setMaxArticles(e.target.value)}
               placeholder="Leave empty for global default"
@@ -83,9 +172,7 @@ function SourceCard({ source, onSave, onScrape }: {
             />
           </div>
           <div>
-            <label className="mb-1 block text-[10px] font-bold tracking-widest text-gray-500 uppercase">
-              Context Prompt
-            </label>
+            <label className="mb-1 block text-[10px] font-bold tracking-widest text-gray-500 uppercase">Context Prompt</label>
             <textarea
               rows={3}
               value={contextPrompt}
@@ -95,14 +182,12 @@ function SourceCard({ source, onSave, onScrape }: {
             />
           </div>
           <div>
-            <label className="mb-1 block text-[10px] font-bold tracking-widest text-gray-500 uppercase">
-              Cron Schedule (overrides global)
-            </label>
+            <label className="mb-1 block text-[10px] font-bold tracking-widest text-gray-500 uppercase">Cron Schedule (overrides global)</label>
             <input
               type="text"
               value={cronSchedule}
               onChange={(e) => setCronSchedule(e.target.value)}
-              placeholder="e.g. 0 8 * * *  (leave empty to use global schedule)"
+              placeholder="e.g. 0 8 * * *"
               className="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 font-mono text-sm text-white placeholder-gray-600 focus:border-brand-500 focus:outline-none"
             />
             <p className="mt-1 text-[10px] text-gray-600">Format: minute hour day month weekday</p>
@@ -110,8 +195,27 @@ function SourceCard({ source, onSave, onScrape }: {
         </div>
       )}
 
+      {/* Test results */}
+      <div className="px-5">
+        {testing && (
+          <div className="mt-3 flex items-center gap-2.5 py-3 text-xs text-gray-500">
+            <span className="h-3 w-3 animate-spin rounded-full border-2 border-brand-500 border-t-transparent" />
+            Fetching articles from source…
+          </div>
+        )}
+        {testError && (
+          <div className="mt-3 rounded-xl border border-red-800/40 bg-red-950/20 px-4 py-3 text-xs text-red-400">
+            {testError}
+          </div>
+        )}
+        {testResult !== null && (
+          <TestPanel articles={testResult} onClose={() => setTestResult(null)} />
+        )}
+        {(testing || testResult !== null || testError) && <div className="pb-3" />}
+      </div>
+
       {/* Actions */}
-      <div className="flex items-center gap-2 px-5 py-3">
+      <div className="flex flex-wrap items-center gap-2 px-5 py-3 border-t border-gray-800">
         <button
           onClick={() => onSave(source.id, { is_active: !source.is_active })}
           className={`rounded-lg border px-3 py-1.5 text-xs font-semibold transition ${
@@ -122,31 +226,52 @@ function SourceCard({ source, onSave, onScrape }: {
         >
           {source.is_active ? 'Pause' : 'Enable'}
         </button>
+
+        <button
+          onClick={handleTest}
+          disabled={testing}
+          className="rounded-lg border border-brand-700/50 px-3 py-1.5 text-xs font-semibold text-brand-400 hover:border-brand-500 hover:bg-brand-950/30 disabled:opacity-50 transition"
+        >
+          {testing ? (
+            <span className="flex items-center gap-1.5">
+              <span className="h-2.5 w-2.5 animate-spin rounded-full border border-brand-400 border-t-transparent" />
+              Testing…
+            </span>
+          ) : '▷ Test'}
+        </button>
+
         <button
           onClick={() => onScrape(source.slug)}
-          className="rounded-lg border border-gray-700 px-3 py-1.5 text-xs font-semibold text-gray-400 hover:border-brand-600 hover:text-brand-400 transition"
+          className="rounded-lg border border-gray-700 px-3 py-1.5 text-xs font-semibold text-gray-400 hover:border-gray-500 hover:text-white transition"
         >
           ↓ Scrape Now
         </button>
-        <button
-          onClick={() => { setEditing(!editing); if (editing) handleSave() }}
-          className={`ml-auto rounded-lg px-3 py-1.5 text-xs font-bold transition ${
-            editing
-              ? 'bg-brand-600 text-white hover:bg-brand-500'
-              : 'border border-gray-700 text-gray-400 hover:border-gray-500 hover:text-white'
-          }`}
-        >
-          {editing ? '✓ Save' : 'Edit'}
-        </button>
-        {editing && (
-          <button onClick={() => setEditing(false)} className="rounded-lg border border-gray-700 px-3 py-1.5 text-xs text-gray-500 hover:text-white transition">
-            Cancel
-          </button>
-        )}
+
+        <div className="ml-auto flex gap-2">
+          {editing ? (
+            <>
+              <button onClick={handleSave}
+                className="rounded-lg bg-brand-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-brand-500 transition">
+                ✓ Save
+              </button>
+              <button onClick={() => setEditing(false)}
+                className="rounded-lg border border-gray-700 px-3 py-1.5 text-xs text-gray-500 hover:text-white transition">
+                Cancel
+              </button>
+            </>
+          ) : (
+            <button onClick={() => setEditing(true)}
+              className="rounded-lg border border-gray-700 px-3 py-1.5 text-xs font-semibold text-gray-400 hover:border-gray-500 hover:text-white transition">
+              Edit
+            </button>
+          )}
+        </div>
       </div>
     </div>
   )
 }
+
+// ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function AdminSources() {
   const qc = useQueryClient()
