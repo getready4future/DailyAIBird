@@ -6,7 +6,7 @@ from datetime import datetime
 import asyncio
 import json
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Security
+from fastapi import APIRouter, Depends, HTTPException, Query, Security
 from fastapi.responses import StreamingResponse
 from fastapi.security import APIKeyHeader
 from sqlalchemy.orm import Session
@@ -168,16 +168,18 @@ async def scrape_events(token: str = Query(...)):
 
 @router.post("/trigger-scrape", dependencies=[Depends(_check_token)])
 async def trigger_scrape(
-    background_tasks: BackgroundTasks,
     source_slug: str = "all",
-    db: Session = Depends(get_db),
 ):
+    import asyncio
+    import threading
     from app.pipeline.orchestrator import run_scrape_pipeline
 
-    async def _run():
-        await run_scrape_pipeline(source_slug)
+    def _run_in_thread():
+        # Own event loop per thread so time.sleep() in AI processing
+        # never blocks the main FastAPI event loop (which serves SSE).
+        asyncio.run(run_scrape_pipeline(source_slug))
 
-    background_tasks.add_task(_run)
+    threading.Thread(target=_run_in_thread, daemon=True).start()
     return {"message": f"Scrape triggered for '{source_slug}'"}
 
 
