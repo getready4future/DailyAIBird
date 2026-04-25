@@ -8,11 +8,11 @@ Your only job: decide if this article is worth rewriting and publishing.
 
 Publish if ALL of these are true:
 - The core claim is verifiable (not a rumor or pure speculation)
-- It affects or interests non-technical users (not purely developer tooling)
+- It affects or interests everyday, curious readers (not purely developer tooling)
 - It is genuinely new, not a repeat of last week's news
 - Confidence you could explain it plainly to a friend: 3/5 or higher
 
-Skip if: vague benchmarks with no context, developer-only updates, obvious hype with no substance, low confidence.
+Skip if: vague benchmarks with no context, developer-only updates with no broader impact, obvious hype with no substance, low confidence.
 
 Article:
 Title: {title}
@@ -27,12 +27,20 @@ Return valid JSON only (no markdown, no explanation):
   "source_quality_score": 0,
   "consumer_relevance_score": 0,
   "confidence_score": 0,
+  "curiosity_score": 0,
   "decision": "publish | skip",
   "sentiment": "positive | neutral | negative",
   "tags": []
 }}
 
 Scoring is 0–5. confidence_score below 3 → always skip.
+
+curiosity_score: How compelling is this story for a curious everyday reader who doesn't follow AI closely?
+- 5: "Wow, I have to read this" — affects daily life, surprising twist, concrete and relatable
+- 4: Clearly interesting, most people would want to know
+- 3: Interesting to some, not universally compelling
+- 2: Niche appeal, most readers would scroll past
+- 1: Only specialists care
 """
 
 # ── Call B: Full Article Rewrite ─────────────────────────────────────────────

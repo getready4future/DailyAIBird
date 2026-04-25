@@ -19,6 +19,8 @@ export interface Article {
   topic: string | null
   relevance_score: number | null
   impact_score: number | null
+  curiosity_score: number | null
+  momentum_score: number
   sentiment: 'positive' | 'neutral' | 'negative' | null
   tags: string[]
   quality_score: number | null

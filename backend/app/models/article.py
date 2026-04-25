@@ -32,9 +32,13 @@ class Article(Base):
 
     # AI quality / scam analysis (Call A)
     quality_score: Mapped[Optional[float]] = mapped_column(Float)
+    curiosity_score: Mapped[Optional[float]] = mapped_column(Float)  # 0–1: how compelling for a general reader
     flags: Mapped[Optional[str]] = mapped_column(Text)  # JSON array
     is_scam: Mapped[Optional[bool]] = mapped_column(Boolean)
     scam_reason: Mapped[Optional[str]] = mapped_column(Text)
+
+    # Story clustering
+    momentum_score: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
 
     # Moderation workflow
     # pending_ai | pending_human | published | rejected | rejected_ai

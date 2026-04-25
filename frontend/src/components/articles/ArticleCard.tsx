@@ -81,6 +81,11 @@ function HeroCard({ article }: { article: Article }) {
             ★ Featured
           </span>
         )}
+        {article.momentum_score >= 3 && (
+          <span className="rounded-full bg-rose-500/90 px-2.5 py-0.5 text-xs font-bold text-white">
+            🔥 {article.momentum_score} sources
+          </span>
+        )}
         {article.topic && <TopicBadge topic={article.topic} />}
       </div>
 
@@ -128,11 +133,14 @@ function LargeCard({ article }: { article: Article }) {
         <div className={`${article.image_url ? 'hidden' : ''}`}>
           <TopicGradient topic={article.topic} height="h-52" />
         </div>
-        {article.topic && (
-          <div className="absolute bottom-3 left-3">
-            <TopicBadge topic={article.topic} />
-          </div>
-        )}
+        <div className="absolute bottom-3 left-3 flex items-center gap-1.5">
+          {article.momentum_score >= 3 && (
+            <span className="rounded-full bg-rose-500/90 px-2 py-0.5 text-[10px] font-bold text-white">
+              🔥 {article.momentum_score}
+            </span>
+          )}
+          {article.topic && <TopicBadge topic={article.topic} />}
+        </div>
       </Link>
 
       <div className="flex flex-1 flex-col p-4">
@@ -195,7 +203,14 @@ function DefaultCard({ article }: { article: Article }) {
           {article.title}
         </Link>
         <div className="mt-3 flex items-center justify-between gap-2">
-          {article.topic && <TopicBadge topic={article.topic} />}
+          <div className="flex items-center gap-1.5">
+            {article.momentum_score >= 3 && (
+              <span className="rounded-full bg-rose-100 px-2 py-0.5 text-[10px] font-bold text-rose-600">
+                🔥 {article.momentum_score}
+              </span>
+            )}
+            {article.topic && <TopicBadge topic={article.topic} />}
+          </div>
           <a
             href={article.url}
             target="_blank"

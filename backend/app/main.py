@@ -118,7 +118,17 @@ def _seed_sources() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Create tables if they don't exist yet (idempotent, Alembic handles migrations)
+    # Run Alembic migrations then create any remaining tables
+    try:
+        from alembic.config import Config as AlembicConfig
+        from alembic import command as alembic_command
+        import os
+        alembic_cfg = AlembicConfig(os.path.join(os.path.dirname(__file__), "..", "alembic.ini"))
+        alembic_cfg.set_main_option("script_location", os.path.join(os.path.dirname(__file__), "..", "alembic"))
+        alembic_command.upgrade(alembic_cfg, "head")
+        logger.info("Alembic migrations applied")
+    except Exception as exc:
+        logger.warning("Alembic migration failed (non-fatal): %s", exc)
     Base.metadata.create_all(bind=engine)
     logger.info("Database tables ready")
 

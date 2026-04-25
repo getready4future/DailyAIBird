@@ -238,9 +238,12 @@ def _flag_featured(db: Session) -> None:
     from sqlalchemy import func as sqlfunc
     cfg = _cfg()
     cutoff = datetime.utcnow() - timedelta(hours=24)
+    momentum_boost = sqlfunc.least(sqlfunc.coalesce(Article.momentum_score, 1), 5) / 5.0
     combined = (
-        sqlfunc.coalesce(Article.relevance_score, 0) * 0.6
-        + sqlfunc.coalesce(Article.impact_score, 0) * 0.4
+        sqlfunc.coalesce(Article.relevance_score, 0) * 0.35
+        + sqlfunc.coalesce(Article.impact_score, 0) * 0.25
+        + sqlfunc.coalesce(Article.curiosity_score, 0) * 0.25
+        + momentum_boost * 0.15
     )
     top = (
         db.query(Article)
@@ -287,6 +290,12 @@ async def run_scrape_pipeline(source_slug: str = "all") -> dict:
             deduped = _deduplicate_cross_source(db)
             if deduped:
                 progress.emit(f"{deduped} çapraz-kaynak tekrarı elendi", kind="info")
+
+            from app.pipeline.clustering import cluster_pending_articles
+            clustered = cluster_pending_articles(db)
+            if clustered:
+                progress.emit(f"{clustered} makale story cluster'larına gruplandı", kind="info")
+
             progress.emit("AI analizi başlıyor…", kind="info")
 
         # AI processing — async so sleeps yield to event loop (SSE flush)

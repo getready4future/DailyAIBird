@@ -31,9 +31,13 @@ def list_articles(
             q = q.filter(Article.source_id == source.id)
 
     if sort == "relevance":
+        # relevance 35% + impact 25% + curiosity 25% + momentum boost 15%
+        momentum_boost = func.least(func.coalesce(Article.momentum_score, 1), 5) / 5.0
         combined = (
-            func.coalesce(Article.relevance_score, 0) * 0.6
-            + func.coalesce(Article.impact_score, 0) * 0.4
+            func.coalesce(Article.relevance_score, 0) * 0.35
+            + func.coalesce(Article.impact_score, 0) * 0.25
+            + func.coalesce(Article.curiosity_score, 0) * 0.25
+            + momentum_boost * 0.15
         )
         q = q.order_by(combined.desc(), Article.published_at.desc())
     else:

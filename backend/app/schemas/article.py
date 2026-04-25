@@ -17,6 +17,8 @@ class ArticleOut(BaseModel):
     topic: Optional[str]
     relevance_score: Optional[float]
     impact_score: Optional[float]
+    curiosity_score: Optional[float]
+    momentum_score: int = 1
     sentiment: Optional[str]
     tags: list[str]
     quality_score: Optional[float]
