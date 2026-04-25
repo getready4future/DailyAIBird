@@ -61,6 +61,8 @@ def process_article(article: Article, source_name: str, db: Session, *, context_
     )
 
     # ── Call A: Quality Gate ──────────────────────────────────────────────────
+    progress.emit(article.title, kind="call_a_start", source=source_name, url=article.url)
+    t_a = datetime.utcnow()
     prompt_a = _get_prompt("quality_check", QUALITY_CHECK_PROMPT).format(
         title=article.title,
         source_name=source_name,
@@ -107,6 +109,7 @@ def process_article(article: Article, source_name: str, db: Session, *, context_
     decision = result_a.get("decision", "skip")
 
     # ── Emit Call A scores ────────────────────────────────────────────────────
+    elapsed_a = round((datetime.utcnow() - t_a).total_seconds(), 1)
     progress.emit(
         article.title,
         kind="scored",
@@ -118,6 +121,8 @@ def process_article(article: Article, source_name: str, db: Session, *, context_
         confidence=int(confidence),
         curiosity=int(curiosity_raw),
         core_claim=result_a.get("core_claim", ""),
+        why_it_matters=result_a.get("why_it_matters_for_users", ""),
+        elapsed=elapsed_a,
     )
 
     # ── Reject if skip or confidence too low ──────────────────────────────────
@@ -139,7 +144,8 @@ def process_article(article: Article, source_name: str, db: Session, *, context_
     why_it_matters = result_a.get("why_it_matters_for_users", "")
 
     # ── Announce rewrite ──────────────────────────────────────────────────────
-    progress.emit(article.title, kind="rewriting", url=article.url)
+    t_b = datetime.utcnow()
+    progress.emit(article.title, kind="rewriting", url=article.url, source=source_name)
 
     # ── Call B: Full Article Rewrite (unchanged) ──────────────────────────────
     extra_instructions = f"\n\nSource-specific guidance: {context_prompt}" if context_prompt else ""
@@ -173,7 +179,9 @@ def process_article(article: Article, source_name: str, db: Session, *, context_
     db.commit()
 
     # ── Emit final result ─────────────────────────────────────────────────────
-    preview = (article.summary or "")[:160].strip()
+    elapsed_b = round((datetime.utcnow() - t_b).total_seconds(), 1)
+    elapsed_total = round((datetime.utcnow() - t_a).total_seconds(), 1)
+    preview = (article.summary or "")[:300].strip()
     progress.emit(
         article.title,
         kind="publish",
@@ -183,6 +191,9 @@ def process_article(article: Article, source_name: str, db: Session, *, context_
         confidence=int(confidence),
         image_url=article.image_url,
         preview=preview,
+        elapsed_a=elapsed_a,
+        elapsed_b=elapsed_b,
+        elapsed_total=elapsed_total,
     )
 
     logger.info(

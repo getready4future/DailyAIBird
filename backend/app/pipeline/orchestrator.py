@@ -77,10 +77,13 @@ async def _scrape_source(source: Source, db: Session) -> tuple[int, int]:
     _prog.emit(f"{source.name} taranıyor…", kind="source_start", source=source.name)
 
     try:
+        _prog.emit(f"HTTP isteği gönderiliyor…", kind="fetch_start", source=source.name)
         async with SCRAPE_SEMAPHORE:
             articles: list[ScrapedArticle] = await scraper.fetch_articles()
 
         found = len(articles)
+        _prog.emit(f"{found} makale alındı", kind="fetch_done", source=source.name, count=found)
+
         from app.config_store import get_max_articles_per_source
         global_max = get_max_articles_per_source()
 
@@ -94,9 +97,14 @@ async def _scrape_source(source: Source, db: Session) -> tuple[int, int]:
         ]
 
         max_articles = source.max_articles if source.max_articles is not None else global_max
+        skip_old = skip_url = skip_title = 0
+
         for article in articles[:max_articles]:
             # Skip old articles
             if article.published_at and article.published_at < cutoff:
+                skip_old += 1
+                _prog.emit(article.title, kind="skip_old", source=source.name, url=article.url,
+                           reason=f"Eski içerik ({article.published_at.strftime('%d %b %H:%M') if article.published_at else '?'})")
                 continue
 
             # URL dedup
@@ -105,10 +113,16 @@ async def _scrape_source(source: Source, db: Session) -> tuple[int, int]:
             if not exists:
                 exists = db.query(Article).filter(Article.url == norm_url).first()
             if exists:
+                skip_url += 1
+                _prog.emit(article.title, kind="skip_url", source=source.name, url=article.url,
+                           reason="URL zaten veritabanında")
                 continue
 
             # Title near-dedup
             if any(titles_are_similar(article.title, t) for t in existing_titles):
+                skip_title += 1
+                _prog.emit(article.title, kind="skip_title", source=source.name, url=article.url,
+                           reason="Benzer başlık zaten mevcut")
                 logger.debug("Near-duplicate title skipped: %s", article.title)
                 continue
 
@@ -129,8 +143,7 @@ async def _scrape_source(source: Source, db: Session) -> tuple[int, int]:
             existing_titles.append(article.title)
             new += 1
 
-            from app.ai import progress
-            progress.emit(
+            _prog.emit(
                 article.title,
                 kind="found",
                 url=article.url,
@@ -147,8 +160,16 @@ async def _scrape_source(source: Source, db: Session) -> tuple[int, int]:
         source.last_scraped_at = datetime.utcnow()
         db.commit()
 
-        from app.ai import progress
-        progress.emit(f"{source.name}: {new} yeni / {found} toplam", kind="scrape")
+        _prog.emit(
+            f"{source.name}: {new} yeni · {skip_old} eski · {skip_url} url-tekrar · {skip_title} başlık-tekrar",
+            kind="source_done",
+            source=source.name,
+            new=new,
+            skip_old=skip_old,
+            skip_url=skip_url,
+            skip_title=skip_title,
+            total=found,
+        )
         logger.info("Scraped %s: %d found, %d new", source.name, found, new)
 
     except Exception as exc:
@@ -213,20 +234,32 @@ async def _ai_process_pending(db: Session) -> int:
     if not pending:
         return 0
 
+    from app.ai import progress
+    total = len(pending)
     batch_size = _cfg().get("ai_batch_size", settings.AI_BATCH_SIZE)
     processed = 0
 
-    for i in range(0, len(pending), batch_size):
+    progress.emit(f"{total} makale AI analizine alınıyor", kind="ai_batch_start", total=total)
+
+    for i in range(0, total, batch_size):
         batch = pending[i: i + batch_size]
-        for article in batch:
+        for j, article in enumerate(batch):
             source_name = article.source.name if article.source else "Unknown"
             context_prompt = article.source.context_prompt if article.source else None
+            current = i + j + 1
+            progress.emit(
+                article.title,
+                kind="ai_queue",
+                current=current,
+                total=total,
+                source=source_name,
+                url=article.url,
+            )
             try:
                 process_article(article, source_name, db, context_prompt=context_prompt)
                 processed += 1
             except Exception as exc:
                 logger.error("AI processing failed for article %d: %s", article.id, exc)
-            # Yield to the event loop so SSE events are flushed between articles
             await asyncio.sleep(0.5)
         await asyncio.sleep(1)
 
