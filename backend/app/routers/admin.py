@@ -702,10 +702,11 @@ def reject_digest(
 # ── Live Progress Stream ──────────────────────────────────────────────────────
 
 @router.get("/scrape-events")
-async def scrape_events(request: Request, token: str | None = Query(None)):
+async def scrape_events(request: Request, token: str | None = Query(None), since: int = Query(0)):
     """SSE endpoint — streams scrape progress events.
     Accepts token via Authorization: Bearer <token> header (preferred)
     or ?token= query param (deprecated — visible in logs).
+    Use ?since=N to resume from a known event index (for tab-reconnect).
     """
     auth_header = request.headers.get("Authorization", "")
     if auth_header.startswith("Bearer "):
@@ -721,7 +722,7 @@ async def scrape_events(request: Request, token: str | None = Query(None)):
     from app.ai import progress
 
     async def generate():
-        index = 0
+        index = max(0, since)
         idle_ticks = 0
         while idle_ticks < 600:  # max 5 min (600 × 0.5s)
             events = progress.get_events(index)
