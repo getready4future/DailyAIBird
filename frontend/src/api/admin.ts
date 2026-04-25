@@ -85,6 +85,10 @@ export const updateSource = async (id: number, update: Partial<AdminSource>): Pr
   return data
 }
 
+export const deleteSource = async (id: number): Promise<void> => {
+  await adminApi.delete(`/admin/sources/${id}`)
+}
+
 export interface SourceTestArticle {
   title: string
   url: string

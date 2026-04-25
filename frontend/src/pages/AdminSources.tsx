@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { formatDistanceToNow } from 'date-fns'
-import { fetchAdminSources, updateSource, triggerScrape, testSource, importCatalogSource, type AdminSource, type SourceTestArticle } from '../api/admin'
+import { fetchAdminSources, updateSource, deleteSource, triggerScrape, testSource, importCatalogSource, type AdminSource, type SourceTestArticle } from '../api/admin'
 import Spinner from '../components/ui/Spinner'
 import PipelinePanel from '../components/admin/PipelinePanel'
 
@@ -78,12 +78,13 @@ function TestPanel({ articles, onClose }: { articles: SourceTestArticle[]; onClo
 
 // ── Source card ───────────────────────────────────────────────────────────────
 
-function SourceCard({ source, selected, onToggleSelect, onSave, onScrape }: {
+function SourceCard({ source, selected, onToggleSelect, onSave, onScrape, onDelete }: {
   source: AdminSource
   selected: boolean
   onToggleSelect: (id: number) => void
   onSave: (id: number, data: Partial<AdminSource>) => void
   onScrape: (slug: string, name: string) => void
+  onDelete: (id: number, name: string) => void
 }) {
   const [editing, setEditing] = useState(false)
   const [maxArticles, setMaxArticles] = useState(source.max_articles?.toString() ?? '')
@@ -356,6 +357,12 @@ function SourceCard({ source, selected, onToggleSelect, onSave, onScrape }: {
               Edit
             </button>
           )}
+          <button
+            onClick={() => onDelete(source.id, source.name)}
+            className="rounded-lg border border-red-900/50 px-3 py-1.5 text-xs font-semibold text-red-600 hover:border-red-700 hover:text-red-400 transition"
+          >
+            Sil
+          </button>
         </div>
       </div>
     </div>
@@ -490,12 +497,13 @@ function AddSourceForm({ onClose }: { onClose: () => void }) {
 
 // ── Google News Tab ───────────────────────────────────────────────────────────
 
-function GoogleNewsTab({ gNewsSources, onSave, onScrape, selectedIds, onToggleSelect }: {
+function GoogleNewsTab({ gNewsSources, onSave, onScrape, selectedIds, onToggleSelect, onDelete }: {
   gNewsSources: AdminSource[]
   onSave: (id: number, data: Partial<AdminSource>) => void
   onScrape: (slug: string, name: string) => void
   selectedIds: Set<number>
   onToggleSelect: (id: number) => void
+  onDelete: (id: number, name: string) => void
 }) {
   const qc = useQueryClient()
   const [keywords, setKeywords] = useState('')
@@ -622,6 +630,7 @@ function GoogleNewsTab({ gNewsSources, onSave, onScrape, selectedIds, onToggleSe
                 onToggleSelect={onToggleSelect}
                 onSave={onSave}
                 onScrape={onScrape}
+                onDelete={onDelete}
               />
             ))}
           </div>
@@ -653,6 +662,16 @@ export default function AdminSources() {
     mutationFn: ({ id, data }: { id: number; data: Partial<AdminSource> }) => updateSource(id, data),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['admin-sources'] }),
   })
+
+  const deleteMut = useMutation({
+    mutationFn: (id: number) => deleteSource(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['admin-sources'] }),
+  })
+
+  function handleDelete(id: number, name: string) {
+    if (!window.confirm(`"${name}" kaynağını silmek istediğine emin misin? Bu işlem geri alınamaz.`)) return
+    deleteMut.mutate(id)
+  }
 
   const activeSources = sources.filter((s) => s.is_active && s.scraper_type !== 'gnews')
   const pausedSources = sources.filter((s) => !s.is_active && s.scraper_type !== 'gnews')
@@ -835,6 +854,7 @@ export default function AdminSources() {
           onScrape={handleScrape}
           selectedIds={selectedIds}
           onToggleSelect={toggleSelect}
+          onDelete={handleDelete}
         />
       ) : visibleSources.length === 0 ? (
         <div className="flex flex-col items-center gap-3 rounded-2xl border border-gray-800 bg-gray-900/50 py-16 text-center">
@@ -860,6 +880,7 @@ export default function AdminSources() {
               onToggleSelect={toggleSelect}
               onSave={(id, data) => updateMut.mutate({ id, data })}
               onScrape={handleScrape}
+              onDelete={handleDelete}
             />
           ))}
         </div>

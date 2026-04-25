@@ -81,6 +81,7 @@ def cluster_pending_articles(db: Session) -> int:
         cluster_size = len(articles)
         best.momentum_score = cluster_size
 
+        source_names = [a.source.name for a in articles if a.source]
         for article in articles:
             if article.id != best.id:
                 article.status = "clustered"
@@ -89,11 +90,20 @@ def cluster_pending_articles(db: Session) -> int:
                 article.rejection_reason = f"Clustered under article {best.id} (momentum={cluster_size})"
                 merged += 1
 
+        from app.ai import progress
+        progress.emit(
+            best.title,
+            kind="clustered",
+            cluster_size=cluster_size,
+            sources=source_names,
+            primary_source=best.source.name if best.source else "",
+        )
+
         logger.info(
             "Cluster of %d articles → primary: %s (sources: %s)",
             cluster_size,
             best.title[:60],
-            ", ".join(a.source.name for a in articles if a.source),
+            ", ".join(source_names),
         )
 
     if merged:

@@ -9,6 +9,7 @@ const NAV = [
   { to: '/admin/sources/find',   label: 'Find Sources',  icon: '🔍' },
   { to: '/admin/models',         label: 'Models',        icon: '🤖' },
   { to: '/admin/pipeline',        label: 'Pipeline',      icon: '⚙️' },
+  { to: '/admin/monitor',         label: 'Monitor',       icon: '📡' },
   { to: '/admin/scheduler',      label: 'Scheduler',     icon: '⏰' },
   { to: '/admin/users',          label: 'Users',         icon: '👥' },
 ]

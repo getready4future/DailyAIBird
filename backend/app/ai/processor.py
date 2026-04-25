@@ -116,6 +116,7 @@ def process_article(article: Article, source_name: str, db: Session, *, context_
         quality=int(src_q),
         relevance=int(cons_r),
         confidence=int(confidence),
+        curiosity=int(curiosity_raw),
         core_claim=result_a.get("core_claim", ""),
     )
 

@@ -241,6 +241,16 @@ def update_source(source_id: int, body: SourceUpdate, db: Session = Depends(get_
     return source
 
 
+@router.delete("/sources/{source_id}", dependencies=[Depends(_check_token)])
+def delete_source(source_id: int, db: Session = Depends(get_db)):
+    source = db.query(Source).filter(Source.id == source_id).first()
+    if not source:
+        raise HTTPException(status_code=404, detail="Source not found")
+    db.delete(source)
+    db.commit()
+    return {"deleted": source_id}
+
+
 # ── AI Models Status ──────────────────────────────────────────────────────────
 
 @router.get("/models", dependencies=[Depends(_check_token)])
