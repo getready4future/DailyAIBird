@@ -24,16 +24,30 @@ export default function Home() {
   return (
     <div>
       {/* Page header */}
-      <div className="mb-6 flex items-end justify-between gap-4 border-b border-gray-100 pb-5">
-        <div>
-          <p className="mb-1 text-[11px] font-bold tracking-widest text-brand-600 uppercase">AI News</p>
-          <h1 className="text-3xl font-extrabold tracking-tight text-gray-950">Today's Feed</h1>
+      <div className="mb-6 border-b border-gray-100 pb-5">
+        <div className="flex items-end justify-between gap-4">
+          <div>
+            <div className="mb-2 flex flex-wrap items-center gap-2">
+              <span className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-0.5 text-[10px] font-bold tracking-wide text-amber-700 uppercase">
+                🤖 AI-Assisted
+              </span>
+              <span className="rounded-full border border-green-200 bg-green-50 px-2.5 py-0.5 text-[10px] font-bold tracking-wide text-green-700 uppercase">
+                ✓ Editor-Reviewed
+              </span>
+            </div>
+            <h1 className="text-3xl font-extrabold tracking-tight text-gray-950">
+              {topic ? `${topic.replace('_', ' ')} News` : "Today's AI News"}
+            </h1>
+            <p className="mt-1 text-sm text-gray-400">
+              Surfaced, summarised, and scored — updated continuously
+            </p>
+          </div>
+          {data && (
+            <span className="shrink-0 rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-gray-500">
+              {data.total} stories
+            </span>
+          )}
         </div>
-        {data && (
-          <span className="shrink-0 rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-gray-500">
-            {data.total} stories
-          </span>
-        )}
       </div>
 
       <div className="mb-7">

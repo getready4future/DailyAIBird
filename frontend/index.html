@@ -4,19 +4,55 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/bird.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Daily AI Bird — AI News for Developers</title>
-    <meta name="description" content="AI-curated daily news for AI developers and researchers. Fresh updates every morning." />
+    <title>Daily AI Bird — AI-Assisted News Intelligence</title>
+    <meta name="description" content="AI-assisted, editor-reviewed news intelligence. The most important AI developments surfaced, summarised, and scored — delivered daily." />
     <link rel="canonical" href="https://dailyaibird.com/" />
     <meta property="og:type" content="website" />
-    <meta property="og:title" content="Daily AI Bird — AI News for Developers" />
-    <meta property="og:description" content="AI-curated daily news for AI developers and researchers. Fresh updates every morning." />
+    <meta property="og:title" content="Daily AI Bird — AI-Assisted News Intelligence" />
+    <meta property="og:description" content="AI-assisted, editor-reviewed news intelligence for developers and researchers. Fresh every morning." />
     <meta property="og:url" content="https://dailyaibird.com/" />
     <meta property="og:site_name" content="Daily AI Bird" />
     <meta property="og:image" content="/bird-og.png" />
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="Daily AI Bird — AI News for Developers" />
-    <meta name="twitter:description" content="AI-curated daily news for AI developers and researchers." />
+    <meta name="twitter:title" content="Daily AI Bird — AI-Assisted News Intelligence" />
+    <meta name="twitter:description" content="AI-assisted, editor-reviewed AI news. Summarised, scored, and curated daily." />
     <meta name="twitter:image" content="/bird-og.png" />
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@graph": [
+        {
+          "@type": "Organization",
+          "@id": "https://dailyaibird.com/#organization",
+          "name": "Daily AI Bird",
+          "url": "https://dailyaibird.com",
+          "logo": {
+            "@type": "ImageObject",
+            "url": "https://dailyaibird.com/bird-og.png"
+          },
+          "description": "AI-assisted, editor-reviewed news intelligence platform covering artificial intelligence.",
+          "sameAs": []
+        },
+        {
+          "@type": "WebSite",
+          "@id": "https://dailyaibird.com/#website",
+          "name": "Daily AI Bird",
+          "url": "https://dailyaibird.com",
+          "publisher": {
+            "@id": "https://dailyaibird.com/#organization"
+          },
+          "potentialAction": {
+            "@type": "SearchAction",
+            "target": {
+              "@type": "EntryPoint",
+              "urlTemplate": "https://dailyaibird.com/?topic={search_term_string}"
+            },
+            "query-input": "required name=search_term_string"
+          }
+        }
+      ]
+    }
+    </script>
   </head>
   <body>
     <div id="root"></div>

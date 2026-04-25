@@ -17,6 +17,13 @@ import AdminSourceDiscover from './pages/AdminSourceDiscover'
 import AdminPipeline from './pages/AdminPipeline'
 import AdminMonitor from './pages/AdminMonitor'
 import AdminSeo from './pages/AdminSeo'
+import AboutPage from './pages/AboutPage'
+import EditorialStandards from './pages/EditorialStandards'
+import AiUsePolicy from './pages/AiUsePolicy'
+import PrivacyPolicy from './pages/PrivacyPolicy'
+import Terms from './pages/Terms'
+import AdvertisingPolicy from './pages/AdvertisingPolicy'
+import CorrectionsPolicy from './pages/CorrectionsPolicy'
 
 export default function App() {
   return (
@@ -29,6 +36,16 @@ export default function App() {
         <Route path="/topics" element={<Topics />} />
         <Route path="/sources" element={<Sources />} />
         <Route path="/articles/:id" element={<ArticleDetail />} />
+
+        {/* Policy & trust pages */}
+        <Route path="/about" element={<AboutPage />} />
+        <Route path="/editorial-standards" element={<EditorialStandards />} />
+        <Route path="/ai-use-policy" element={<AiUsePolicy />} />
+        <Route path="/privacy-policy" element={<PrivacyPolicy />} />
+        <Route path="/terms" element={<Terms />} />
+        <Route path="/advertising-policy" element={<AdvertisingPolicy />} />
+        <Route path="/corrections-policy" element={<CorrectionsPolicy />} />
+        <Route path="/contact" element={<AboutPage />} />
       </Route>
 
       {/* Admin login — no layout */}
