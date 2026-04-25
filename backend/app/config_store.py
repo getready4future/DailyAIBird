@@ -130,3 +130,31 @@ def reset_prompt(key: str) -> None:
             db.commit()
     finally:
         db.close()
+
+
+# ── SEO config ────────────────────────────────────────────────────────────────
+
+DEFAULT_SEO_CONFIG = {
+    "site_name":          "Daily AI Bird",
+    "site_url":           "https://dailyaibird.com",
+    "site_title":         "Daily AI Bird — AI News for Developers",
+    "site_description":   "AI-curated daily news for AI developers and researchers. Fresh updates every morning.",
+    "default_og_image":   "/bird-og.png",
+    "twitter_handle":     "@dailyaibird",
+    "publisher_name":     "Daily AI Bird",
+    "language":           "en",
+    "robots_extra":       "",
+}
+
+
+def get_seo_config() -> dict:
+    stored = get_setting("seo_config", None)
+    if stored and isinstance(stored, dict):
+        return {**DEFAULT_SEO_CONFIG, **stored}
+    return dict(DEFAULT_SEO_CONFIG)
+
+
+def save_seo_config(config: dict) -> None:
+    current = get_seo_config()
+    current.update(config)
+    set_setting("seo_config", current)

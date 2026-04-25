@@ -16,6 +16,7 @@ import AdminUsers from './pages/AdminUsers'
 import AdminSourceDiscover from './pages/AdminSourceDiscover'
 import AdminPipeline from './pages/AdminPipeline'
 import AdminMonitor from './pages/AdminMonitor'
+import AdminSeo from './pages/AdminSeo'
 
 export default function App() {
   return (
@@ -44,6 +45,7 @@ export default function App() {
         <Route path="/admin/sources/find" element={<AdminSourceDiscover />} />
         <Route path="/admin/pipeline" element={<AdminPipeline />} />
         <Route path="/admin/monitor" element={<AdminMonitor />} />
+        <Route path="/admin/seo" element={<AdminSeo />} />
       </Route>
     </Routes>
   )

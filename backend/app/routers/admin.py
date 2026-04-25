@@ -391,6 +391,22 @@ def update_app_config(body: dict = Body(...)):
 
 # ── Scheduler Config ──────────────────────────────────────────────────────────
 
+# ── SEO config ────────────────────────────────────────────────────────────────
+
+@router.get("/seo", dependencies=[Depends(_check_token)])
+def get_seo():
+    from app.config_store import get_seo_config
+    return get_seo_config()
+
+
+@router.patch("/seo", dependencies=[Depends(_check_token)])
+def update_seo(config: dict = Body(...)):
+    from app.config_store import save_seo_config, get_seo_config, DEFAULT_SEO_CONFIG
+    allowed = set(DEFAULT_SEO_CONFIG.keys())
+    save_seo_config({k: v for k, v in config.items() if k in allowed})
+    return get_seo_config()
+
+
 @router.get("/scheduler", dependencies=[Depends(_check_token)])
 def get_scheduler():
     from app.config_store import get_schedule

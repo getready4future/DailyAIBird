@@ -10,6 +10,7 @@ const NAV = [
   { to: '/admin/models',         label: 'Models',        icon: '🤖' },
   { to: '/admin/pipeline',        label: 'Pipeline',      icon: '⚙️' },
   { to: '/admin/monitor',         label: 'Monitor',       icon: '📡' },
+  { to: '/admin/seo',             label: 'SEO',           icon: '🔎' },
   { to: '/admin/scheduler',      label: 'Scheduler',     icon: '⏰' },
   { to: '/admin/users',          label: 'Users',         icon: '👥' },
 ]

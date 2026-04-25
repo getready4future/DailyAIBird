@@ -201,6 +201,10 @@ app.include_router(topics.router, prefix="/api/v1")
 from app.routers import admin  # noqa: E402
 app.include_router(admin.router, prefix="/api/v1")
 
+# SEO routes (sitemap, robots) — mounted at root, NOT under /api/v1
+from app.routers import seo as seo_router  # noqa: E402
+app.include_router(seo_router.router)
+
 
 @app.get("/api/v1/health")
 def health():
@@ -218,12 +222,33 @@ if _static_dir.exists():
 
     app.mount("/assets", StaticFiles(directory=str(_static_dir / "assets")), name="assets")
 
+    from fastapi import Request as _Req
+    from fastapi.responses import HTMLResponse as _HTML
+    from app.routers.seo import is_bot, render_for_bot
+
+    _index_path = _static_dir / "index.html"
+
     @app.get("/{full_path:path}")
-    def serve_spa(full_path: str):
+    def serve_spa(full_path: str, request: _Req):
+        # Static files (assets, images, etc.) served directly
         file = _static_dir / full_path
         if file.exists() and file.is_file():
             return FileResponse(str(file))
-        return FileResponse(str(_static_dir / "index.html"))
+
+        # Bot detection: render meta-tag-rich HTML for crawlers/scrapers
+        ua = request.headers.get("user-agent", "")
+        if is_bot(ua):
+            try:
+                shell = _index_path.read_text(encoding="utf-8")
+                base_url = str(request.base_url).rstrip("/")
+                rendered = render_for_bot(f"/{full_path}", base_url, shell)
+                if rendered:
+                    return _HTML(rendered)
+            except Exception as exc:
+                logger.warning("Bot rendering failed (%s): %s", full_path, exc)
+
+        # Fallback: serve unmodified SPA shell for human users
+        return FileResponse(str(_index_path))
 else:
     @app.get("/")
     def root():
