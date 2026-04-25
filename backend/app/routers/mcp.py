@@ -363,8 +363,11 @@ def mcp_server_card():
     base = cfg["site_url"].rstrip("/")
 
     card = {
-        "schema_version": "1.0",
-        "server_info": {
+        # Top-level name for validators that check either location
+        "name": "Daily AI Bird",
+        "schemaVersion": "1.0",
+        # serverInfo (camelCase) per SEP-1649 / PR #2127
+        "serverInfo": {
             "name": "Daily AI Bird",
             "version": "1.0.0",
             "description": (
@@ -381,7 +384,7 @@ def mcp_server_card():
             "url": f"{base}/mcp",
             "method": "POST",
         },
-        "protocol_version": MCP_PROTOCOL_VERSION,
+        "protocolVersion": MCP_PROTOCOL_VERSION,
         "capabilities": {
             "tools": True,
             "resources": False,
