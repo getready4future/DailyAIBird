@@ -666,6 +666,10 @@ export default function AdminSources() {
   const deleteMut = useMutation({
     mutationFn: (id: number) => deleteSource(id),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['admin-sources'] }),
+    onError: (err: unknown) => {
+      const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail
+      alert('Silme hatası: ' + (msg ?? 'Bilinmeyen hata'))
+    },
   })
 
   function handleDelete(id: number, name: string) {

@@ -243,11 +243,27 @@ def update_source(source_id: int, body: SourceUpdate, db: Session = Depends(get_
 
 @router.delete("/sources/{source_id}", dependencies=[Depends(_check_token)])
 def delete_source(source_id: int, db: Session = Depends(get_db)):
+    from app.models.daily_digest import DailyDigest, DigestArticle
     source = db.query(Source).filter(Source.id == source_id).first()
     if not source:
         raise HTTPException(status_code=404, detail="Source not found")
-    # Delete related articles first (FK constraint)
-    db.query(Article).filter(Article.source_id == source_id).delete()
+
+    # Collect article IDs belonging to this source
+    article_ids = [row[0] for row in db.query(Article.id).filter(Article.source_id == source_id).all()]
+
+    if article_ids:
+        # Remove digest_articles rows referencing these articles
+        db.query(DigestArticle).filter(DigestArticle.article_id.in_(article_ids)).delete(synchronize_session=False)
+        # Null out top_story_id on digests that reference these articles
+        db.query(DailyDigest).filter(DailyDigest.top_story_id.in_(article_ids)).update(
+            {"top_story_id": None}, synchronize_session=False
+        )
+        # Delete the articles
+        db.query(Article).filter(Article.source_id == source_id).delete(synchronize_session=False)
+
+    # Delete scrape runs for this source
+    db.query(ScrapeRun).filter(ScrapeRun.source_id == source_id).delete(synchronize_session=False)
+
     db.delete(source)
     db.commit()
     return {"deleted": source_id}
