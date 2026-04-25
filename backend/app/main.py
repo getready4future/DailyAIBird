@@ -116,6 +116,26 @@ def _seed_sources() -> None:
         db.close()
 
 
+def _ensure_columns() -> None:
+    """Add columns that may be missing due to failed Alembic migrations."""
+    from sqlalchemy import text
+    stmts = [
+        "ALTER TABLE articles ADD COLUMN IF NOT EXISTS curiosity_score FLOAT",
+        "ALTER TABLE articles ADD COLUMN IF NOT EXISTS momentum_score INTEGER NOT NULL DEFAULT 1",
+        "ALTER TABLE sources ADD COLUMN IF NOT EXISTS feed_url VARCHAR",
+        "ALTER TABLE sources ADD COLUMN IF NOT EXISTS max_articles INTEGER",
+        "ALTER TABLE sources ADD COLUMN IF NOT EXISTS context_prompt TEXT",
+        "ALTER TABLE sources ADD COLUMN IF NOT EXISTS cron_schedule VARCHAR",
+        "ALTER TABLE sources ADD COLUMN IF NOT EXISTS scrape_config TEXT DEFAULT '{}'",
+    ]
+    with engine.begin() as conn:
+        for stmt in stmts:
+            try:
+                conn.execute(text(stmt))
+            except Exception as exc:
+                logger.warning("Column ensure skipped (%s): %s", stmt[:60], exc)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Run Alembic migrations then create any remaining tables
@@ -132,6 +152,9 @@ async def lifespan(app: FastAPI):
         logger.warning("Alembic migration failed (non-fatal): %s", exc)
     Base.metadata.create_all(bind=engine)
     logger.info("Database tables ready")
+
+    # Ensure columns added after initial schema exist (safe on repeated restarts)
+    _ensure_columns()
 
     _seed_admin_user()
     _seed_sources()
