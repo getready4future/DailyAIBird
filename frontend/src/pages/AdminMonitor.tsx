@@ -18,12 +18,24 @@ interface PipelineEvent {
   confidence?: number
   curiosity?: number
   core_claim?: string
+  why_it_matters?: string
   reason?: string
   preview?: string
   detail?: string
   cluster_size?: number
   sources?: string[]
   primary_source?: string
+  count?: number
+  current?: number
+  total?: number
+  new?: number
+  skip_old?: number
+  skip_url?: number
+  skip_title?: number
+  elapsed?: number
+  elapsed_a?: number
+  elapsed_b?: number
+  elapsed_total?: number
 }
 
 const TOPIC_COLORS: Record<string, string> = {
@@ -111,13 +123,117 @@ function EventCard({ event }: { event: PipelineEvent }) {
     )
   }
 
+  if (event.kind === 'fetch_start') {
+    return (
+      <div className="flex items-center gap-2 px-1 py-0.5">
+        <Timestamp ts={event.ts} />
+        <span className="h-2.5 w-2.5 shrink-0 animate-spin rounded-full border border-gray-600 border-t-gray-300" />
+        <p className="text-[10px] text-gray-500">HTTP isteği gönderiliyor…</p>
+      </div>
+    )
+  }
+
+  if (event.kind === 'fetch_done') {
+    return (
+      <div className="flex items-center gap-2 px-1 py-0.5">
+        <Timestamp ts={event.ts} />
+        <span className="text-[10px] text-gray-500">✓</span>
+        <p className="text-[10px] text-gray-400">
+          <span className="font-semibold text-gray-200">{event.count}</span> makale alındı
+        </p>
+      </div>
+    )
+  }
+
+  if (event.kind === 'skip_old') {
+    return (
+      <div className="flex items-center gap-2 px-1 py-0.5 opacity-50">
+        <Timestamp ts={event.ts} />
+        <span className="text-[9px] text-gray-600">🕐</span>
+        <p className="flex-1 truncate text-[10px] text-gray-600">{event.message}</p>
+        <span className="shrink-0 text-[9px] text-gray-700">eski</span>
+      </div>
+    )
+  }
+
+  if (event.kind === 'skip_url') {
+    return (
+      <div className="flex items-center gap-2 px-1 py-0.5 opacity-50">
+        <Timestamp ts={event.ts} />
+        <span className="text-[9px] text-gray-600">🔗</span>
+        <p className="flex-1 truncate text-[10px] text-gray-600">{event.message}</p>
+        <span className="shrink-0 text-[9px] text-gray-700">url-tekrar</span>
+      </div>
+    )
+  }
+
+  if (event.kind === 'skip_title') {
+    return (
+      <div className="flex items-center gap-2 px-1 py-0.5 opacity-50">
+        <Timestamp ts={event.ts} />
+        <span className="text-[9px] text-gray-600">≈</span>
+        <p className="flex-1 truncate text-[10px] text-gray-600">{event.message}</p>
+        <span className="shrink-0 text-[9px] text-gray-700">benzer</span>
+      </div>
+    )
+  }
+
+  if (event.kind === 'source_done') {
+    return (
+      <div className="flex flex-wrap items-center gap-2 rounded-lg bg-gray-900/60 px-3 py-2 text-[10px]">
+        <Timestamp ts={event.ts} />
+        <span className="font-semibold text-gray-300">{event.source}</span>
+        <span className="text-emerald-400">+{event.new ?? 0} yeni</span>
+        {(event.skip_old ?? 0) > 0 && <span className="text-gray-600">{event.skip_old} eski</span>}
+        {(event.skip_url ?? 0) > 0 && <span className="text-gray-600">{event.skip_url} url-tekrar</span>}
+        {(event.skip_title ?? 0) > 0 && <span className="text-gray-600">{event.skip_title} benzer</span>}
+        <span className="text-gray-700">/ {event.total ?? 0} toplam</span>
+      </div>
+    )
+  }
+
+  if (event.kind === 'ai_batch_start') {
+    return (
+      <div className="flex items-center gap-3 py-1">
+        <div className="h-px flex-1 bg-gray-800" />
+        <span className="rounded-full border border-blue-700/40 bg-blue-950/30 px-3 py-0.5 text-[10px] font-bold tracking-widest text-blue-400 uppercase">
+          AI Analizi — {event.total} makale
+        </span>
+        <div className="h-px flex-1 bg-gray-800" />
+      </div>
+    )
+  }
+
+  if (event.kind === 'ai_queue') {
+    return (
+      <div className="flex items-center gap-2 px-1 py-0.5">
+        <Timestamp ts={event.ts} />
+        <span className="shrink-0 rounded bg-gray-800 px-1.5 py-0.5 font-mono text-[9px] text-gray-500">
+          {event.current}/{event.total}
+        </span>
+        <p className="flex-1 truncate text-[10px] text-gray-500">{event.message}</p>
+        {event.source && <span className="shrink-0 text-[9px] text-gray-700">{event.source}</span>}
+      </div>
+    )
+  }
+
+  if (event.kind === 'call_a_start') {
+    return (
+      <div className="flex items-center gap-2 px-1 py-0.5">
+        <Timestamp ts={event.ts} />
+        <span className="h-2.5 w-2.5 shrink-0 animate-spin rounded-full border border-blue-600 border-t-blue-200" />
+        <p className="text-[10px] text-blue-500">Call A — kalite değerlendirmesi…</p>
+      </div>
+    )
+  }
+
   if (event.kind === 'found') {
     return (
       <div className="flex items-center gap-2 px-1 py-0.5">
         <Timestamp ts={event.ts} />
-        <span className="text-gray-700 text-xs">◦</span>
+        <span className="text-emerald-700 text-xs">+</span>
         <a href={event.url} target="_blank" rel="noopener noreferrer"
-          className="min-w-0 flex-1 truncate text-[11px] text-gray-600 hover:text-gray-300 transition">
+          className="min-w-0 flex-1 truncate text-[11px] text-gray-400 hover:text-gray-200 transition">
           {event.message}
         </a>
         {event.source && <span className="shrink-0 text-[9px] text-gray-700">{event.source}</span>}
@@ -140,8 +256,8 @@ function EventCard({ event }: { event: PipelineEvent }) {
     return (
       <div className="flex items-center gap-2.5 px-1 py-1">
         <Timestamp ts={event.ts} />
-        <span className="text-violet-500 text-xs">✍</span>
-        <p className="flex-1 truncate text-[11px] text-violet-300">{event.message}</p>
+        <span className="h-2.5 w-2.5 shrink-0 animate-spin rounded-full border border-violet-600 border-t-violet-200" />
+        <p className="flex-1 truncate text-[11px] text-violet-300">Call B — makale yeniden yazılıyor…</p>
       </div>
     )
   }
@@ -188,11 +304,17 @@ function EventCard({ event }: { event: PipelineEvent }) {
         </div>
         {/* Title */}
         <p className="mb-2 text-[11px] font-medium text-gray-200 leading-snug line-clamp-2">{event.message}</p>
-        {/* Core claim — the key insight */}
+        {/* Core claim */}
         {event.core_claim && (
-          <div className="mb-2.5 rounded bg-gray-800/60 px-2 py-1.5">
+          <div className="mb-1.5 rounded bg-gray-800/60 px-2 py-1.5">
             <p className="text-[9px] font-semibold uppercase tracking-wide text-gray-500 mb-0.5">Core Claim</p>
             <p className="text-[10px] italic text-gray-400 line-clamp-2">{event.core_claim}</p>
+          </div>
+        )}
+        {event.why_it_matters && (
+          <div className="mb-2 rounded bg-gray-800/40 px-2 py-1.5">
+            <p className="text-[9px] font-semibold uppercase tracking-wide text-gray-600 mb-0.5">Neden Önemli</p>
+            <p className="text-[10px] text-gray-500 line-clamp-2">{event.why_it_matters}</p>
           </div>
         )}
         {/* Score bars */}
@@ -202,6 +324,9 @@ function EventCard({ event }: { event: PipelineEvent }) {
           <ScoreBar label="Güven"  value={c}  color="text-green-400" />
           <ScoreBar label="Merak"  value={cu} color="text-amber-400" />
         </div>
+        {event.elapsed !== undefined && (
+          <p className="mt-1.5 text-right text-[9px] text-gray-700">{event.elapsed}s</p>
+        )}
       </div>
     )
   }
@@ -246,6 +371,13 @@ function EventCard({ event }: { event: PipelineEvent }) {
             </a>
             {event.preview && (
               <p className="mt-1.5 text-[10px] leading-relaxed text-gray-500 line-clamp-3">{event.preview}</p>
+            )}
+            {event.elapsed_total !== undefined && (
+              <div className="mt-1.5 flex gap-2 text-[9px] text-gray-700">
+                <span>A: {event.elapsed_a}s</span>
+                <span>B: {event.elapsed_b}s</span>
+                <span>toplam: {event.elapsed_total}s</span>
+              </div>
             )}
           </div>
         </div>
