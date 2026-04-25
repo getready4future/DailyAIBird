@@ -16,7 +16,18 @@ from app.models.article import Article
 logger = logging.getLogger(__name__)
 
 MAX_CONTENT_CHARS = 3000
-CONFIDENCE_REJECT_THRESHOLD = 3  # out of 5 — raised since prompt now instructs same threshold
+CONFIDENCE_REJECT_THRESHOLD = 3
+
+
+def _pipeline_cfg():
+    from app.config_store import get_pipeline_config
+    return get_pipeline_config()
+
+
+def _get_prompt(key: str, default: str) -> str:
+    from app.config_store import get_prompt
+    override = get_prompt(key)
+    return override if override else default
 
 
 def _truncate(text: str | None) -> str:
@@ -50,7 +61,7 @@ def process_article(article: Article, source_name: str, db: Session, *, context_
     )
 
     # ── Call A: Quality Gate ──────────────────────────────────────────────────
-    prompt_a = QUALITY_CHECK_PROMPT.format(
+    prompt_a = _get_prompt("quality_check", QUALITY_CHECK_PROMPT).format(
         title=article.title,
         source_name=source_name,
         content=content,
@@ -107,7 +118,8 @@ def process_article(article: Article, source_name: str, db: Session, *, context_
     )
 
     # ── Reject if skip or confidence too low ──────────────────────────────────
-    if decision == "skip" or confidence < CONFIDENCE_REJECT_THRESHOLD:
+    threshold = _pipeline_cfg().get("confidence_reject_threshold", CONFIDENCE_REJECT_THRESHOLD)
+    if decision == "skip" or confidence < threshold:
         article.status = "rejected_ai"
         article.ai_processed = True
         article.ai_processed_at = datetime.utcnow()
@@ -128,7 +140,7 @@ def process_article(article: Article, source_name: str, db: Session, *, context_
 
     # ── Call B: Full Article Rewrite (unchanged) ──────────────────────────────
     extra_instructions = f"\n\nSource-specific guidance: {context_prompt}" if context_prompt else ""
-    prompt_b = ENRICH_PROMPT.format(
+    prompt_b = _get_prompt("enrich", ENRICH_PROMPT).format(
         title=article.title,
         source_name=source_name,
         content=content,

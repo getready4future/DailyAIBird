@@ -785,3 +785,61 @@ def get_scrape_runs(
         }
         for r in runs
     ]
+
+
+# ── Pipeline Config ───────────────────────────────────────────────────────────
+
+@router.get("/pipeline/config", dependencies=[Depends(_check_token)])
+def get_pipeline_config():
+    from app.config_store import get_pipeline_config as _get
+    return _get()
+
+
+@router.patch("/pipeline/config", dependencies=[Depends(_check_token)])
+def update_pipeline_config(config: dict = Body(...)):
+    from app.config_store import save_pipeline_config
+    allowed = {"cutoff_hours", "dedup_threshold", "confidence_reject_threshold",
+                "feature_min_score", "top_featured", "scrape_concurrency", "ai_batch_size"}
+    save_pipeline_config({k: v for k, v in config.items() if k in allowed})
+    from app.config_store import get_pipeline_config as _get
+    return _get()
+
+
+@router.get("/pipeline/stats", dependencies=[Depends(_check_token)])
+def get_pipeline_stats(db: Session = Depends(get_db)):
+    from sqlalchemy import func
+    rows = db.query(Article.status, func.count(Article.id)).group_by(Article.status).all()
+    return {status: count for status, count in rows}
+
+
+@router.get("/pipeline/prompts", dependencies=[Depends(_check_token)])
+def get_pipeline_prompts():
+    from app.config_store import get_prompt
+    from app.ai.prompts import QUALITY_CHECK_PROMPT, ENRICH_PROMPT
+    return {
+        "quality_check": {"current": get_prompt("quality_check") or QUALITY_CHECK_PROMPT, "is_custom": get_prompt("quality_check") is not None, "default": QUALITY_CHECK_PROMPT},
+        "enrich": {"current": get_prompt("enrich") or ENRICH_PROMPT, "is_custom": get_prompt("enrich") is not None, "default": ENRICH_PROMPT},
+    }
+
+
+class PromptUpdate(BaseModel):
+    key: str
+    text: str
+
+
+@router.put("/pipeline/prompts", dependencies=[Depends(_check_token)])
+def update_pipeline_prompt(body: PromptUpdate):
+    if body.key not in ("quality_check", "enrich"):
+        raise HTTPException(status_code=400, detail="Invalid prompt key")
+    from app.config_store import save_prompt
+    save_prompt(body.key, body.text)
+    return {"ok": True}
+
+
+@router.delete("/pipeline/prompts/{key}", dependencies=[Depends(_check_token)])
+def reset_pipeline_prompt(key: str):
+    if key not in ("quality_check", "enrich"):
+        raise HTTPException(status_code=400, detail="Invalid prompt key")
+    from app.config_store import reset_prompt
+    reset_prompt(key)
+    return {"ok": True, "message": "Prompt reset to default"}

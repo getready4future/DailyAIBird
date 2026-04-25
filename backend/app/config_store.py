@@ -81,3 +81,52 @@ def save_schedule(config: dict) -> None:
     current = get_schedule()
     current.update(config)
     set_setting("schedule", current)
+
+
+# ── Pipeline config ────────────────────────────────────────────────────────────
+
+DEFAULT_PIPELINE_CONFIG = {
+    "cutoff_hours": 48,
+    "dedup_threshold": 0.65,
+    "confidence_reject_threshold": 3,
+    "feature_min_score": 0.75,
+    "top_featured": 5,
+    "scrape_concurrency": 5,
+    "ai_batch_size": 5,
+}
+
+
+def get_pipeline_config() -> dict:
+    stored = get_setting("pipeline_config", None)
+    if stored and isinstance(stored, dict):
+        return {**DEFAULT_PIPELINE_CONFIG, **stored}
+    return dict(DEFAULT_PIPELINE_CONFIG)
+
+
+def save_pipeline_config(config: dict) -> None:
+    current = get_pipeline_config()
+    current.update(config)
+    set_setting("pipeline_config", current)
+
+
+# ── AI Prompts ─────────────────────────────────────────────────────────────────
+
+def get_prompt(key: str) -> str | None:
+    """Return custom prompt override, or None to use the default from prompts.py."""
+    return get_setting(f"prompt_{key}", None)
+
+
+def save_prompt(key: str, text: str) -> None:
+    set_setting(f"prompt_{key}", text)
+
+
+def reset_prompt(key: str) -> None:
+    from app.models.app_setting import AppSetting
+    db = _get_db()
+    try:
+        row = db.query(AppSetting).filter(AppSetting.key == f"prompt_{key}").first()
+        if row:
+            db.delete(row)
+            db.commit()
+    finally:
+        db.close()

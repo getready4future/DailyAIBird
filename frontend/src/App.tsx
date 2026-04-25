@@ -14,6 +14,7 @@ import AdminModels from './pages/AdminModels'
 import AdminScheduler from './pages/AdminScheduler'
 import AdminUsers from './pages/AdminUsers'
 import AdminSourceDiscover from './pages/AdminSourceDiscover'
+import AdminPipeline from './pages/AdminPipeline'
 
 export default function App() {
   return (
@@ -40,6 +41,7 @@ export default function App() {
         <Route path="/admin/scheduler" element={<AdminScheduler />} />
         <Route path="/admin/users" element={<AdminUsers />} />
         <Route path="/admin/sources/find" element={<AdminSourceDiscover />} />
+        <Route path="/admin/pipeline" element={<AdminPipeline />} />
       </Route>
     </Routes>
   )

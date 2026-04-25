@@ -25,7 +25,12 @@ from app.scrapers.sources_config import SOURCES
 logger = logging.getLogger(__name__)
 
 SCRAPE_SEMAPHORE = asyncio.Semaphore(5)
-CUTOFF_HOURS = 48
+
+def _cfg():
+    from app.config_store import get_pipeline_config
+    return get_pipeline_config()
+
+CUTOFF_HOURS = 48        # fallback used at module load; runtime uses _cfg()
 FEATURE_MIN_SCORE = 0.75
 TOP_FEATURED = 5
 
@@ -64,7 +69,7 @@ async def _scrape_source(source: Source, db: Session) -> tuple[int, int]:
     db.add(run)
     db.commit()
 
-    cutoff = datetime.utcnow() - timedelta(hours=CUTOFF_HOURS)
+    cutoff = datetime.utcnow() - timedelta(hours=_cfg().get("cutoff_hours", CUTOFF_HOURS))
     found = 0
     new = 0
 
@@ -167,7 +172,9 @@ def _deduplicate_cross_source(db: Session) -> int:
     if not pending:
         return 0
 
-    recent_cutoff = datetime.utcnow() - timedelta(hours=48)
+    cfg = _cfg()
+    recent_cutoff = datetime.utcnow() - timedelta(hours=cfg.get("cutoff_hours", 48))
+    dedup_threshold = cfg.get("dedup_threshold", 0.65)
     existing_titles: list[str] = [
         row[0] for row in db.query(Article.title).filter(
             Article.status.in_(["published", "pending_human"]),
@@ -177,7 +184,7 @@ def _deduplicate_cross_source(db: Session) -> int:
 
     rejected = 0
     for article in pending:
-        if any(titles_are_similar(article.title, t, threshold=0.65) for t in existing_titles):
+        if any(titles_are_similar(article.title, t, threshold=dedup_threshold) for t in existing_titles):
             article.status = "rejected_ai"
             article.rejection_reason = "Cross-source duplicate"
             article.ai_processed = True
@@ -206,7 +213,7 @@ async def _ai_process_pending(db: Session) -> int:
     if not pending:
         return 0
 
-    batch_size = settings.AI_BATCH_SIZE
+    batch_size = _cfg().get("ai_batch_size", settings.AI_BATCH_SIZE)
     processed = 0
 
     for i in range(0, len(pending), batch_size):
@@ -229,6 +236,7 @@ async def _ai_process_pending(db: Session) -> int:
 def _flag_featured(db: Session) -> None:
     """Mark top articles of the past 24h as featured, ranked by combined relevance+impact score."""
     from sqlalchemy import func as sqlfunc
+    cfg = _cfg()
     cutoff = datetime.utcnow() - timedelta(hours=24)
     combined = (
         sqlfunc.coalesce(Article.relevance_score, 0) * 0.6
@@ -238,11 +246,11 @@ def _flag_featured(db: Session) -> None:
         db.query(Article)
         .filter(
             Article.status == "published",
-            combined >= FEATURE_MIN_SCORE,
+            combined >= cfg.get("feature_min_score", FEATURE_MIN_SCORE),
             Article.published_at >= cutoff,
         )
         .order_by(combined.desc())
-        .limit(TOP_FEATURED)
+        .limit(cfg.get("top_featured", TOP_FEATURED))
         .all()
     )
     for article in top:
