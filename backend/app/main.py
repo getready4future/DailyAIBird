@@ -125,6 +125,7 @@ async def lifespan(app: FastAPI):
         import os
         alembic_cfg = AlembicConfig(os.path.join(os.path.dirname(__file__), "..", "alembic.ini"))
         alembic_cfg.set_main_option("script_location", os.path.join(os.path.dirname(__file__), "..", "alembic"))
+        alembic_cfg.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
         alembic_command.upgrade(alembic_cfg, "head")
         logger.info("Alembic migrations applied")
     except Exception as exc:
