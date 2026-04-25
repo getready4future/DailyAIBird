@@ -201,9 +201,13 @@ app.include_router(topics.router, prefix="/api/v1")
 from app.routers import admin  # noqa: E402
 app.include_router(admin.router, prefix="/api/v1")
 
-# SEO routes (sitemap, robots) — mounted at root, NOT under /api/v1
+# SEO routes (sitemap, robots, well-known) — mounted at root, NOT under /api/v1
 from app.routers import seo as seo_router  # noqa: E402
 app.include_router(seo_router.router)
+
+# MCP server — well-known server card + JSON-RPC 2.0 endpoint
+from app.routers import mcp as mcp_router  # noqa: E402
+app.include_router(mcp_router.router)
 
 
 @app.get("/api/v1/health")

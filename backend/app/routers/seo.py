@@ -251,6 +251,7 @@ _LINK_RELS = [
     '</.well-known/api-catalog>; rel="api-catalog"; type="application/linkset+json"',
     '</.well-known/oauth-authorization-server>; rel="oauth-authorization-server"',
     '</.well-known/oauth-protected-resource>; rel="oauth-protected-resource"',
+    '</.well-known/mcp/server-card.json>; rel="mcp-server-card"',
     '</sitemap.xml>; rel="sitemap"',
     '</docs>; rel="service-doc"',
     '</api/v1/health>; rel="service"',
@@ -292,6 +293,10 @@ def api_catalog():
                 # RFC 9728 protected resource metadata
                 "oauth-protected-resource": [
                     {"href": f"{base}/.well-known/oauth-protected-resource"}
+                ],
+                # SEP-1649 MCP server card
+                "mcp-server-card": [
+                    {"href": f"{base}/.well-known/mcp/server-card.json", "type": "application/json"}
                 ],
             }
         ]
