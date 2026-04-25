@@ -359,9 +359,9 @@ function SourceCard({ source, selected, onToggleSelect, onSave, onScrape, onDele
           )}
           <button
             onClick={() => onDelete(source.id, source.name)}
-            className="rounded-lg border border-red-900/50 px-3 py-1.5 text-xs font-semibold text-red-600 hover:border-red-700 hover:text-red-400 transition"
+            className="rounded-lg border border-red-800/60 px-3 py-1.5 text-xs font-semibold text-red-400 hover:bg-red-950/40 hover:border-red-600 hover:text-red-300 transition"
           >
-            Sil
+            🗑 Sil
           </button>
         </div>
       </div>
