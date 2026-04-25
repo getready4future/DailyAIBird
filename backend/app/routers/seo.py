@@ -196,6 +196,176 @@ def render_for_bot(path: str, base_url: str, html_shell: str) -> Optional[str]:
         db.close()
 
 
+# ── Markdown-for-Agents content negotiation ────────────────────────────────────
+
+def _md_strip(s: Optional[str]) -> str:
+    """Strip HTML tags and return plain text for Markdown embedding."""
+    if not s:
+        return ""
+    return re.sub(r"<[^>]+>", "", s).strip()
+
+
+def _score_line(a) -> str:
+    parts = []
+    for label, val in [("Relevance", a.relevance_score), ("Impact", a.impact_score),
+                       ("Curiosity", a.curiosity_score)]:
+        parts.append(f"{label}: {val:.1f}" if val is not None else f"{label}: n/a")
+    parts.append(f"Momentum: {a.momentum_score}")
+    return " · ".join(parts)
+
+
+def render_markdown_for_agent(path: str, base_url: str) -> Optional[str]:
+    """
+    Return Markdown content for AI agent requests (Accept: text/markdown),
+    or None if the path is not handled.
+    """
+    cfg = get_seo_config()
+    base = base_url.rstrip("/")
+    db = SessionLocal()
+    try:
+        # /articles/:id
+        m = re.match(r"^/articles/(\d+)/?$", path)
+        if m:
+            article = db.query(Article).filter(
+                Article.id == int(m.group(1)), Article.status == "published"
+            ).first()
+            if not article:
+                return None
+            lines = [
+                f"# {article.title}",
+                "",
+                f"**Source:** [{article.source.name}]({article.source.url})"
+                + (f"  \n**Author:** {article.author}" if article.author else ""),
+                f"**Topic:** {article.topic or 'general'}",
+                f"**Published:** {article.published_at.strftime('%Y-%m-%d') if article.published_at else 'unknown'}",
+                f"**Scores:** {_score_line(article)}",
+                "",
+                "> ⚠ AI-assisted summary, reviewed by editors. "
+                "Always read the original before citing or acting on this information.",
+                "",
+            ]
+            if article.summary:
+                lines += ["## Summary", "", _md_strip(article.summary), ""]
+            if article.tags:
+                lines += ["**Tags:** " + "  ".join(f"`{t}`" for t in article.tags), ""]
+            lines += [
+                "---",
+                "",
+                f"- [Read original article at {article.source.name}]({article.url})",
+                f"- [View on Daily AI Bird]({base}/articles/{article.id})",
+            ]
+            return "\n".join(lines)
+
+        # /digest/:date or /digest
+        m = re.match(r"^/digest(?:/(\d{4}-\d{2}-\d{2}))?/?$", path)
+        if m:
+            date_str = m.group(1)
+            q = db.query(DailyDigest).filter(DailyDigest.status == "published")
+            if date_str:
+                from datetime import date as _date
+                try:
+                    d = _date.fromisoformat(date_str)
+                    digest = q.filter(DailyDigest.digest_date == d).first()
+                except ValueError:
+                    digest = None
+            else:
+                digest = q.order_by(DailyDigest.digest_date.desc()).first()
+            if not digest:
+                return None
+
+            lines = [
+                f"# Daily AI Bird Digest — {digest.digest_date.isoformat()}",
+                "",
+                f"**Headline:** {digest.headline}",
+                f"**Articles covered:** {digest.article_count}",
+                f"**URL:** {base}/digest/{digest.digest_date.isoformat()}",
+                "",
+            ]
+            if digest.intro:
+                lines += [_md_strip(digest.intro), ""]
+
+            sections = digest.sections if isinstance(digest.sections, list) else []
+            for section in sections:
+                heading = section.get("heading") or section.get("topic", "Section")
+                lines += [f"## {heading}", ""]
+                for item in section.get("items", []):
+                    lines.append(f"- **{item.get('title', '')}**")
+                    if item.get("one_liner"):
+                        lines.append(f"  {item['one_liner']}")
+                lines.append("")
+            return "\n".join(lines)
+
+        # / — recent articles feed
+        if path in ("/", ""):
+            from sqlalchemy import func as _func
+            q = db.query(Article).filter(Article.status == "published")
+            momentum_boost = _func.least(_func.coalesce(Article.momentum_score, 1), 5) / 5.0
+            score_expr = (
+                _func.coalesce(Article.relevance_score, 0) * 0.35
+                + _func.coalesce(Article.impact_score, 0) * 0.25
+                + _func.coalesce(Article.curiosity_score, 0) * 0.25
+                + momentum_boost * 0.15
+            )
+            articles = q.order_by(score_expr.desc(), Article.published_at.desc()).limit(20).all()
+
+            lines = [
+                f"# {cfg['site_title']}",
+                "",
+                f"> {cfg['site_description']}",
+                "",
+                "AI-assisted, editor-reviewed news intelligence. "
+                "Summaries generated by Claude · reviewed by humans.",
+                "",
+                "## Top Stories",
+                "",
+            ]
+            for a in articles:
+                pub = a.published_at.strftime("%Y-%m-%d") if a.published_at else "unknown"
+                lines.append(
+                    f"### [{a.title}]({base}/articles/{a.id})"
+                )
+                lines.append(
+                    f"**{a.source.name}** · {pub}"
+                    + (f" · {a.topic}" if a.topic else "")
+                    + f" · {_score_line(a)}"
+                )
+                if a.summary:
+                    lines.append("")
+                    lines.append(_md_strip(a.summary)[:200] + ("…" if len(a.summary) > 200 else ""))
+                lines.append("")
+            return "\n".join(lines)
+
+        # /topics
+        if path == "/topics":
+            from sqlalchemy import func as _func
+            rows = (
+                db.query(Article.topic, _func.count(Article.id))
+                .filter(Article.status == "published", Article.topic.isnot(None))
+                .group_by(Article.topic)
+                .order_by(_func.count(Article.id).desc())
+                .all()
+            )
+            lines = [
+                "# Daily AI Bird — Topics",
+                "",
+                "Available topic categories with article counts:",
+                "",
+            ]
+            for topic, count in rows:
+                lines.append(f"- [{topic}]({base}/?topic={topic}) — {count} articles")
+            lines += ["", f"[← Back to feed]({base}/)"]
+            return "\n".join(lines)
+
+        return None
+    finally:
+        db.close()
+
+
+def wants_markdown(accept_header: str) -> bool:
+    """Return True when the request explicitly asks for text/markdown."""
+    return "text/markdown" in accept_header
+
+
 # ── sitemap.xml ────────────────────────────────────────────────────────────────
 
 @router.get("/sitemap.xml", response_class=Response)

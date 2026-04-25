@@ -228,7 +228,8 @@ if _static_dir.exists():
 
     from fastapi import Request as _Req
     from fastapi.responses import HTMLResponse as _HTML
-    from app.routers.seo import is_bot, render_for_bot, AGENT_LINK_HEADER
+    from fastapi.responses import Response as _Resp
+    from app.routers.seo import is_bot, render_for_bot, render_markdown_for_agent, wants_markdown, AGENT_LINK_HEADER
 
     _index_path = _static_dir / "index.html"
     # RFC 8288 headers attached to every SPA shell response for agent discovery
@@ -241,17 +242,37 @@ if _static_dir.exists():
         if file.exists() and file.is_file():
             return FileResponse(str(file))
 
+        base_url = str(request.base_url).rstrip("/")
+        path = f"/{full_path}"
+
+        # Markdown-for-Agents (Cloudflare spec): agent sends Accept: text/markdown
+        accept = request.headers.get("accept", "")
+        if wants_markdown(accept):
+            try:
+                md = render_markdown_for_agent(path, base_url)
+                if md:
+                    token_estimate = max(1, len(md) // 4)
+                    return _Resp(
+                        content=md,
+                        media_type="text/markdown; charset=utf-8",
+                        headers={
+                            **_spa_headers,
+                            "x-markdown-tokens": str(token_estimate),
+                        },
+                    )
+            except Exception as exc:
+                logger.warning("Markdown rendering failed (%s): %s", path, exc)
+
         # Bot detection: render meta-tag-rich HTML for crawlers/scrapers
         ua = request.headers.get("user-agent", "")
         if is_bot(ua):
             try:
                 shell = _index_path.read_text(encoding="utf-8")
-                base_url = str(request.base_url).rstrip("/")
-                rendered = render_for_bot(f"/{full_path}", base_url, shell)
+                rendered = render_for_bot(path, base_url, shell)
                 if rendered:
                     return _HTML(rendered, headers=_spa_headers)
             except Exception as exc:
-                logger.warning("Bot rendering failed (%s): %s", full_path, exc)
+                logger.warning("Bot rendering failed (%s): %s", path, exc)
 
         # SPA shell — include RFC 8288 Link headers for agent discovery
         return FileResponse(str(_index_path), headers=_spa_headers)
