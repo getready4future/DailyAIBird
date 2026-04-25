@@ -87,6 +87,7 @@ function SourceCard({ source, selected, onToggleSelect, onSave, onScrape, onDele
   onDelete: (id: number, name: string) => void
 }) {
   const [editing, setEditing] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState(false)
   const [maxArticles, setMaxArticles] = useState(source.max_articles?.toString() ?? '')
   const [contextPrompt, setContextPrompt] = useState(source.context_prompt ?? '')
   const [cronSchedule, setCronSchedule] = useState(source.cron_schedule ?? '')
@@ -357,12 +358,30 @@ function SourceCard({ source, selected, onToggleSelect, onSave, onScrape, onDele
               Edit
             </button>
           )}
-          <button
-            onClick={() => onDelete(source.id, source.name)}
-            className="rounded-lg border border-red-800/60 px-3 py-1.5 text-xs font-semibold text-red-400 hover:bg-red-950/40 hover:border-red-600 hover:text-red-300 transition"
-          >
-            🗑 Sil
-          </button>
+          {confirmDelete ? (
+            <>
+              <span className="text-xs text-red-400">Emin misin?</span>
+              <button
+                onClick={() => { setConfirmDelete(false); onDelete(source.id, source.name) }}
+                className="rounded-lg bg-red-700 px-3 py-1.5 text-xs font-bold text-white hover:bg-red-600 transition"
+              >
+                Evet Sil
+              </button>
+              <button
+                onClick={() => setConfirmDelete(false)}
+                className="rounded-lg border border-gray-700 px-3 py-1.5 text-xs text-gray-400 hover:text-white transition"
+              >
+                İptal
+              </button>
+            </>
+          ) : (
+            <button
+              onClick={() => setConfirmDelete(true)}
+              className="rounded-lg border border-red-800/60 px-3 py-1.5 text-xs font-semibold text-red-400 hover:bg-red-950/40 hover:border-red-600 transition"
+            >
+              🗑 Sil
+            </button>
+          )}
         </div>
       </div>
     </div>
@@ -672,8 +691,7 @@ export default function AdminSources() {
     },
   })
 
-  function handleDelete(id: number, name: string) {
-    if (!window.confirm(`"${name}" kaynağını silmek istediğine emin misin? Bu işlem geri alınamaz.`)) return
+  function handleDelete(id: number, _name: string) {
     deleteMut.mutate(id)
   }
 
