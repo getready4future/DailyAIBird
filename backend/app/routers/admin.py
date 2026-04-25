@@ -246,6 +246,8 @@ def delete_source(source_id: int, db: Session = Depends(get_db)):
     source = db.query(Source).filter(Source.id == source_id).first()
     if not source:
         raise HTTPException(status_code=404, detail="Source not found")
+    # Delete related articles first (FK constraint)
+    db.query(Article).filter(Article.source_id == source_id).delete()
     db.delete(source)
     db.commit()
     return {"deleted": source_id}
