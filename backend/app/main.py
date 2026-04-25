@@ -224,13 +224,15 @@ if _static_dir.exists():
 
     from fastapi import Request as _Req
     from fastapi.responses import HTMLResponse as _HTML
-    from app.routers.seo import is_bot, render_for_bot
+    from app.routers.seo import is_bot, render_for_bot, AGENT_LINK_HEADER
 
     _index_path = _static_dir / "index.html"
+    # RFC 8288 headers attached to every SPA shell response for agent discovery
+    _spa_headers = {"Link": AGENT_LINK_HEADER}
 
     @app.get("/{full_path:path}")
     def serve_spa(full_path: str, request: _Req):
-        # Static files (assets, images, etc.) served directly
+        # Static files (assets, images, etc.) served directly — no Link header needed
         file = _static_dir / full_path
         if file.exists() and file.is_file():
             return FileResponse(str(file))
@@ -243,13 +245,19 @@ if _static_dir.exists():
                 base_url = str(request.base_url).rstrip("/")
                 rendered = render_for_bot(f"/{full_path}", base_url, shell)
                 if rendered:
-                    return _HTML(rendered)
+                    return _HTML(rendered, headers=_spa_headers)
             except Exception as exc:
                 logger.warning("Bot rendering failed (%s): %s", full_path, exc)
 
-        # Fallback: serve unmodified SPA shell for human users
-        return FileResponse(str(_index_path))
+        # SPA shell — include RFC 8288 Link headers for agent discovery
+        return FileResponse(str(_index_path), headers=_spa_headers)
 else:
+    from app.routers.seo import AGENT_LINK_HEADER as _LINK_HDR
+
     @app.get("/")
     def root():
-        return {"service": "Daily AI Bird API", "docs": "/docs", "health": "/api/v1/health"}
+        from fastapi.responses import JSONResponse as _JSON
+        return _JSON(
+            {"service": "Daily AI Bird API", "docs": "/docs", "health": "/api/v1/health"},
+            headers={"Link": _LINK_HDR},
+        )

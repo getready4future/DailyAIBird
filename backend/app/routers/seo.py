@@ -1,5 +1,6 @@
 """
-SEO endpoints: sitemap.xml, robots.txt, and bot meta-tag injection helper.
+SEO endpoints: sitemap.xml, robots.txt, bot meta-tag injection, and
+RFC 8288 agent-discovery Link headers + /.well-known/api-catalog.
 
 Bot detection is intentionally lenient: any UA matching the BOT_PATTERNS regex
 gets server-rendered HTML with full meta tags. Real users get the unmodified
@@ -14,7 +15,7 @@ from html import escape as html_escape
 from typing import Optional
 
 from fastapi import APIRouter
-from fastapi.responses import PlainTextResponse, Response
+from fastapi.responses import JSONResponse, PlainTextResponse, Response
 
 from app.config_store import get_seo_config
 from app.database import SessionLocal
@@ -242,6 +243,86 @@ def sitemap():
         )
     finally:
         db.close()
+
+
+# ── Agent-discovery Link headers (RFC 8288) ────────────────────────────────────
+
+_LINK_RELS = [
+    '</.well-known/api-catalog>; rel="api-catalog"',
+    '</sitemap.xml>; rel="sitemap"',
+    '</docs>; rel="service-doc"',
+    '</api/v1/health>; rel="service"',
+]
+
+AGENT_LINK_HEADER = ", ".join(_LINK_RELS)
+
+
+@router.get("/.well-known/api-catalog")
+def api_catalog():
+    """RFC 9727 API catalog — machine-readable index of available API endpoints."""
+    cfg = get_seo_config()
+    base = cfg["site_url"].rstrip("/")
+    catalog = {
+        "@context": "https://schema.org",
+        "@type": "WebAPI",
+        "name": "Daily AI Bird API",
+        "description": "REST API for AI-assisted news articles, daily digests, topics, and sources.",
+        "url": f"{base}/docs",
+        "documentation": f"{base}/docs",
+        "version": "1.0.0",
+        "license": f"{base}/terms",
+        "termsOfService": f"{base}/terms",
+        "provider": {
+            "@type": "Organization",
+            "name": "Daily AI Bird",
+            "url": base,
+        },
+        "endpoints": [
+            {
+                "name": "Articles",
+                "description": "Published AI news articles with scores, summaries, and metadata.",
+                "url": f"{base}/api/v1/articles",
+                "contentType": "application/json",
+            },
+            {
+                "name": "Daily Digests",
+                "description": "Curated daily AI news digest, one per day.",
+                "url": f"{base}/api/v1/digests",
+                "contentType": "application/json",
+            },
+            {
+                "name": "Topics",
+                "description": "Article topic taxonomy with article counts.",
+                "url": f"{base}/api/v1/topics",
+                "contentType": "application/json",
+            },
+            {
+                "name": "Sources",
+                "description": "Monitored news sources.",
+                "url": f"{base}/api/v1/sources",
+                "contentType": "application/json",
+            },
+            {
+                "name": "Health",
+                "description": "Service health check.",
+                "url": f"{base}/api/v1/health",
+                "contentType": "application/json",
+            },
+            {
+                "name": "Sitemap",
+                "description": "XML sitemap of all public pages and articles.",
+                "url": f"{base}/sitemap.xml",
+                "contentType": "application/xml",
+            },
+        ],
+    }
+    return JSONResponse(
+        content=catalog,
+        headers={
+            "Cache-Control": "public, max-age=86400",
+            "Link": AGENT_LINK_HEADER,
+        },
+    )
 
 
 # ── robots.txt ─────────────────────────────────────────────────────────────────
