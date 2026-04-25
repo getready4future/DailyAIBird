@@ -144,6 +144,11 @@ DEFAULT_SEO_CONFIG = {
     "publisher_name":     "Daily AI Bird",
     "language":           "en",
     "robots_extra":       "",
+    # Content Signals (draft-romm-aipref-contentsignals)
+    # Declare usage preferences for crawlers, AI systems, and search engines.
+    "cs_search":    "yes",   # allow indexing for search
+    "cs_ai_train":  "no",    # do not use content for AI model training
+    "cs_ai_input":  "no",    # do not use content as AI context/RAG input
 }
 
 

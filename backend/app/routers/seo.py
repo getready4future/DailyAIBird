@@ -332,11 +332,23 @@ def robots():
     cfg = get_seo_config()
     base = cfg["site_url"].rstrip("/")
     extra = cfg.get("robots_extra", "") or ""
+
+    # Build Content-Signal directive (draft-romm-aipref-contentsignals)
+    cs_parts = [
+        f"search={cfg.get('cs_search', 'yes')}",
+        f"ai-train={cfg.get('cs_ai_train', 'no')}",
+        f"ai-input={cfg.get('cs_ai_input', 'no')}",
+    ]
+    content_signal = ", ".join(cs_parts)
+
     body = f"""User-agent: *
 Allow: /
 Disallow: /admin
 Disallow: /admin/
 Disallow: /api/
+
+# Content usage preferences (https://contentsignals.org/)
+Content-Signal: {content_signal}
 
 Sitemap: {base}/sitemap.xml
 """
