@@ -7,6 +7,7 @@ gets server-rendered HTML with full meta tags. Real users get the unmodified
 SPA shell. This is "dynamic rendering" — explicitly supported by Google, not
 cloaking, since the same content is delivered in a different format.
 """
+import hashlib
 import json
 import re
 import xml.sax.saxutils as xml_escape
@@ -252,6 +253,7 @@ _LINK_RELS = [
     '</.well-known/oauth-authorization-server>; rel="oauth-authorization-server"',
     '</.well-known/oauth-protected-resource>; rel="oauth-protected-resource"',
     '</.well-known/mcp/server-card.json>; rel="mcp-server-card"',
+    '</.well-known/agent-skills/index.json>; rel="agent-skills"',
     '</sitemap.xml>; rel="sitemap"',
     '</docs>; rel="service-doc"',
     '</api/v1/health>; rel="service"',
@@ -449,6 +451,96 @@ def oauth_protected_resource():
             "Cache-Control": "public, max-age=86400",
             "Link": AGENT_LINK_HEADER,
         },
+    )
+
+
+# ── Agent Skills Discovery (agentskills.io RFC v0.2.0) ────────────────────────
+
+def _skill_doc(base: str, name: str, tool_name: str, description: str) -> dict:
+    """Build a single agent skill document."""
+    return {
+        "name": name,
+        "version": "1.0.0",
+        "type": "mcp-tool",
+        "description": description,
+        "protocol": "mcp",
+        "protocol_version": "2024-11-05",
+        "endpoint": f"{base}/mcp",
+        "authentication": {"type": "none"},
+        "tool": {"name": tool_name},
+        "documentation": f"{base}/docs",
+        "homepage": base,
+    }
+
+
+def _skill_sha256(doc: dict) -> str:
+    canonical = json.dumps(doc, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode()).hexdigest()
+
+
+_SKILL_DEFS = [
+    ("search-articles", "search_articles",
+     "Search published AI news articles by topic and sort order."),
+    ("get-article", "get_article",
+     "Get a specific AI news article by ID including full AI-generated summary."),
+    ("get-digest", "get_digest",
+     "Get the curated daily AI news digest for a specific date or the latest."),
+    ("list-topics", "list_topics",
+     "List all AI news topic categories with article counts."),
+]
+
+
+@router.get("/.well-known/agent-skills/index.json")
+def agent_skills_index():
+    """
+    Agent Skills Discovery index (agentskills.io RFC v0.2.0).
+    Lists all agent-callable skills published by this server with sha256 integrity digests.
+    """
+    cfg = get_seo_config()
+    base = cfg["site_url"].rstrip("/")
+
+    skills = []
+    for slug, tool_name, description in _SKILL_DEFS:
+        doc = _skill_doc(base, slug, tool_name, description)
+        skills.append({
+            "name": slug,
+            "type": "mcp-tool",
+            "description": description,
+            "url": f"{base}/.well-known/agent-skills/{slug}/SKILL.json",
+            "sha256": _skill_sha256(doc),
+        })
+
+    index = {
+        "$schema": "https://agentskills.io/schema/v0.2.0/index.json",
+        "skills": skills,
+    }
+    return JSONResponse(
+        content=index,
+        headers={
+            "Cache-Control": "public, max-age=3600",
+            "Link": AGENT_LINK_HEADER,
+        },
+    )
+
+
+@router.get("/.well-known/agent-skills/{skill_slug}/SKILL.json")
+def agent_skill_doc(skill_slug: str):
+    """Individual agent skill document."""
+    cfg = get_seo_config()
+    base = cfg["site_url"].rstrip("/")
+
+    match = next(
+        ((slug, tool, desc) for slug, tool, desc in _SKILL_DEFS if slug == skill_slug),
+        None,
+    )
+    if match is None:
+        return JSONResponse({"error": "Skill not found"}, status_code=404)
+
+    slug, tool_name, description = match
+    doc = _skill_doc(base, slug, tool_name, description)
+    return JSONResponse(
+        content=doc,
+        headers={"Cache-Control": "public, max-age=3600"},
     )
 
 
