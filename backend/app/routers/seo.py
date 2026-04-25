@@ -248,7 +248,7 @@ def sitemap():
 # ── Agent-discovery Link headers (RFC 8288) ────────────────────────────────────
 
 _LINK_RELS = [
-    '</.well-known/api-catalog>; rel="api-catalog"',
+    '</.well-known/api-catalog>; rel="api-catalog"; type="application/linkset+json"',
     '</sitemap.xml>; rel="sitemap"',
     '</docs>; rel="service-doc"',
     '</api/v1/health>; rel="service"',
@@ -259,65 +259,37 @@ AGENT_LINK_HEADER = ", ".join(_LINK_RELS)
 
 @router.get("/.well-known/api-catalog")
 def api_catalog():
-    """RFC 9727 API catalog — machine-readable index of available API endpoints."""
+    """
+    RFC 9727 API catalog in RFC 9264 Linkset format.
+    Content-Type: application/linkset+json
+    """
     cfg = get_seo_config()
     base = cfg["site_url"].rstrip("/")
-    catalog = {
-        "@context": "https://schema.org",
-        "@type": "WebAPI",
-        "name": "Daily AI Bird API",
-        "description": "REST API for AI-assisted news articles, daily digests, topics, and sources.",
-        "url": f"{base}/docs",
-        "documentation": f"{base}/docs",
-        "version": "1.0.0",
-        "license": f"{base}/terms",
-        "termsOfService": f"{base}/terms",
-        "provider": {
-            "@type": "Organization",
-            "name": "Daily AI Bird",
-            "url": base,
-        },
-        "endpoints": [
+
+    # RFC 9264 §4.2 — linkset object: each entry has an anchor and link relations.
+    # Each relation value is an array of link target objects (href required, type optional).
+    linkset = {
+        "linkset": [
             {
-                "name": "Articles",
-                "description": "Published AI news articles with scores, summaries, and metadata.",
-                "url": f"{base}/api/v1/articles",
-                "contentType": "application/json",
-            },
-            {
-                "name": "Daily Digests",
-                "description": "Curated daily AI news digest, one per day.",
-                "url": f"{base}/api/v1/digests",
-                "contentType": "application/json",
-            },
-            {
-                "name": "Topics",
-                "description": "Article topic taxonomy with article counts.",
-                "url": f"{base}/api/v1/topics",
-                "contentType": "application/json",
-            },
-            {
-                "name": "Sources",
-                "description": "Monitored news sources.",
-                "url": f"{base}/api/v1/sources",
-                "contentType": "application/json",
-            },
-            {
-                "name": "Health",
-                "description": "Service health check.",
-                "url": f"{base}/api/v1/health",
-                "contentType": "application/json",
-            },
-            {
-                "name": "Sitemap",
-                "description": "XML sitemap of all public pages and articles.",
-                "url": f"{base}/sitemap.xml",
-                "contentType": "application/xml",
-            },
-        ],
+                "anchor": f"{base}/api/v1",
+                "service-desc": [
+                    {
+                        "href": f"{base}/openapi.json",
+                        "type": "application/vnd.oai.openapi+json;version=3.0",
+                    }
+                ],
+                "service-doc": [
+                    {"href": f"{base}/docs"}
+                ],
+                "status": [
+                    {"href": f"{base}/api/v1/health"}
+                ],
+            }
+        ]
     }
-    return JSONResponse(
-        content=catalog,
+    return Response(
+        content=json.dumps(linkset),
+        media_type="application/linkset+json",
         headers={
             "Cache-Control": "public, max-age=86400",
             "Link": AGENT_LINK_HEADER,
