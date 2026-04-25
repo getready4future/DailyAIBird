@@ -266,8 +266,7 @@ def delete_source(source_id: int, db: Session = Depends(get_db)):
         return {"deleted": source_id}
     except Exception as exc:
         db.rollback()
-        logger.error("delete_source failed for %s: %s\n%s", source_id, exc, traceback.format_exc())
-        raise HTTPException(status_code=500, detail=str(exc))
+        raise HTTPException(status_code=500, detail=f"{type(exc).__name__}: {exc}")
 
 
 # ── AI Models Status ──────────────────────────────────────────────────────────

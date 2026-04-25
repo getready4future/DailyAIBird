@@ -686,9 +686,12 @@ export default function AdminSources() {
     mutationFn: (id: number) => deleteSource(id),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['admin-sources'] }),
     onError: (err: unknown) => {
-      const e = err as { response?: { status?: number; data?: { detail?: string } }; message?: string }
-      const msg = e?.response?.data?.detail ?? e?.message ?? JSON.stringify(err)
-      alert('Silme hatası ' + (e?.response?.status ?? '') + ': ' + msg)
+      const e = err as { response?: { status?: number; data?: unknown }; message?: string }
+      const data = e?.response?.data
+      const detail = typeof data === 'object' && data !== null && 'detail' in data
+        ? (data as { detail: string }).detail
+        : typeof data === 'string' ? data : e?.message ?? 'Bilinmeyen hata'
+      alert('Silme hatası ' + (e?.response?.status ?? '') + ':\n' + detail)
     },
   })
 
