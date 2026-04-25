@@ -250,6 +250,7 @@ def sitemap():
 _LINK_RELS = [
     '</.well-known/api-catalog>; rel="api-catalog"; type="application/linkset+json"',
     '</.well-known/oauth-authorization-server>; rel="oauth-authorization-server"',
+    '</.well-known/oauth-protected-resource>; rel="oauth-protected-resource"',
     '</sitemap.xml>; rel="sitemap"',
     '</docs>; rel="service-doc"',
     '</api/v1/health>; rel="service"',
@@ -287,6 +288,10 @@ def api_catalog():
                 # RFC 8414 authorization server metadata for this API
                 "oauth-authorization-server": [
                     {"href": f"{base}/.well-known/oauth-authorization-server"}
+                ],
+                # RFC 9728 protected resource metadata
+                "oauth-protected-resource": [
+                    {"href": f"{base}/.well-known/oauth-protected-resource"}
                 ],
             }
         ]
@@ -355,6 +360,83 @@ def oauth_authorization_server():
                 ),
             },
         },
+    }
+    return JSONResponse(
+        content=metadata,
+        headers={
+            "Cache-Control": "public, max-age=86400",
+            "Link": AGENT_LINK_HEADER,
+        },
+    )
+
+
+# ── OAuth 2.0 Protected Resource Metadata (RFC 9728) ──────────────────────────
+
+@router.get("/.well-known/oauth-protected-resource")
+def oauth_protected_resource():
+    """
+    RFC 9728 OAuth 2.0 Protected Resource Metadata.
+
+    Describes this resource server — which authorization server can issue
+    tokens for it, what scopes are supported, and how credentials are
+    conveyed. Published so agents can programmatically discover how to
+    authenticate before calling the API.
+    """
+    cfg = get_seo_config()
+    base = cfg["site_url"].rstrip("/")
+
+    metadata = {
+        # Required (RFC 9728 §2): URI that identifies this protected resource.
+        "resource": f"{base}/api/v1",
+
+        # The authorization server(s) that can issue credentials for this resource.
+        # Our AS metadata (RFC 8414) is at /.well-known/oauth-authorization-server
+        # and explicitly states no OAuth token issuance — public API needs no token,
+        # admin API uses a pre-issued API key delivered in X-Admin-Token.
+        "authorization_servers": [base],
+
+        # No OAuth scopes are used; access tiers are controlled by API key presence.
+        "scopes_supported": [],
+
+        # Admin API key is sent in a request header (X-Admin-Token).
+        # "header" is the closest RFC 9728 §2 bearer_methods value.
+        # Note: the header name is X-Admin-Token, not Authorization: Bearer.
+        "bearer_methods_supported": ["header"],
+
+        # Documentation pointers
+        "resource_documentation": f"{base}/docs",
+        "resource_policy_uri": f"{base}/terms",
+        "resource_tos_uri": f"{base}/terms",
+
+        # Extension (x_ prefix per RFC 9728 §4.1): per-tier credential details
+        # so agents know which paths are open vs. key-gated.
+        "x_access_tiers": [
+            {
+                "name": "public",
+                "base_url": f"{base}/api/v1",
+                "paths": [
+                    "/api/v1/articles",
+                    "/api/v1/digests",
+                    "/api/v1/topics",
+                    "/api/v1/sources",
+                    "/api/v1/health",
+                ],
+                "auth_required": False,
+                "note": "No credentials needed. Read-only access to published content.",
+            },
+            {
+                "name": "admin",
+                "base_url": f"{base}/api/v1/admin",
+                "paths": ["/api/v1/admin"],
+                "auth_required": True,
+                "auth_scheme": "ApiKey",
+                "auth_header": "X-Admin-Token",
+                "note": (
+                    "Pre-issued static API key required in the X-Admin-Token header. "
+                    "Contact the site operator to obtain a key."
+                ),
+            },
+        ],
     }
     return JSONResponse(
         content=metadata,
