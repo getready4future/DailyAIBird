@@ -249,6 +249,7 @@ def sitemap():
 
 _LINK_RELS = [
     '</.well-known/api-catalog>; rel="api-catalog"; type="application/linkset+json"',
+    '</.well-known/oauth-authorization-server>; rel="oauth-authorization-server"',
     '</sitemap.xml>; rel="sitemap"',
     '</docs>; rel="service-doc"',
     '</api/v1/health>; rel="service"',
@@ -266,8 +267,7 @@ def api_catalog():
     cfg = get_seo_config()
     base = cfg["site_url"].rstrip("/")
 
-    # RFC 9264 §4.2 — linkset object: each entry has an anchor and link relations.
-    # Each relation value is an array of link target objects (href required, type optional).
+    # RFC 9264 §4.2 — linkset object; each relation value is an array of {href, type?}.
     linkset = {
         "linkset": [
             {
@@ -284,12 +284,80 @@ def api_catalog():
                 "status": [
                     {"href": f"{base}/api/v1/health"}
                 ],
+                # RFC 8414 authorization server metadata for this API
+                "oauth-authorization-server": [
+                    {"href": f"{base}/.well-known/oauth-authorization-server"}
+                ],
             }
         ]
     }
     return Response(
         content=json.dumps(linkset),
         media_type="application/linkset+json",
+        headers={
+            "Cache-Control": "public, max-age=86400",
+            "Link": AGENT_LINK_HEADER,
+        },
+    )
+
+
+# ── OAuth 2.0 Authorization Server Metadata (RFC 8414) ────────────────────────
+
+@router.get("/.well-known/oauth-authorization-server")
+def oauth_authorization_server():
+    """
+    RFC 8414 Authorization Server Metadata.
+
+    Daily AI Bird public APIs (/api/v1/articles, /digests, /topics, /sources)
+    require no credentials. Admin APIs use a pre-issued API key in the
+    X-Admin-Token header — not a standard OAuth flow.
+
+    This document is published for agent discoverability and to explicitly
+    declare that no OAuth token issuance is in use.
+    """
+    cfg = get_seo_config()
+    base = cfg["site_url"].rstrip("/")
+
+    metadata = {
+        # Required by RFC 8414
+        "issuer": base,
+
+        # No OAuth authorization code, implicit, or client-credentials flow.
+        # Public API endpoints need no credentials at all.
+        "grant_types_supported": [],
+        "response_types_supported": [],
+        "token_endpoint_auth_methods_supported": [],
+        "scopes_supported": [],
+
+        # Service documentation pointers
+        "service_documentation": f"{base}/docs",
+        "op_policy_uri": f"{base}/terms",
+        "op_tos_uri": f"{base}/terms",
+        "ui_locales_supported": ["en"],
+
+        # Extension: describe the two access tiers so agents know what to expect.
+        # Not part of RFC 8414 core but follows the x_ extension convention.
+        "x_access_tiers": {
+            "public": {
+                "base_url": f"{base}/api/v1",
+                "resources": ["articles", "digests", "topics", "sources", "health"],
+                "auth_required": False,
+                "note": "No credentials needed. Read-only access to published content.",
+            },
+            "admin": {
+                "base_url": f"{base}/api/v1/admin",
+                "auth_required": True,
+                "auth_scheme": "ApiKey",
+                "auth_header": "X-Admin-Token",
+                "note": (
+                    "Pre-issued static API key required. "
+                    "Not an OAuth flow — contact the site operator to obtain a key."
+                ),
+            },
+        },
+    }
+    return JSONResponse(
+        content=metadata,
         headers={
             "Cache-Control": "public, max-age=86400",
             "Link": AGENT_LINK_HEADER,
