@@ -148,6 +148,8 @@ def _ensure_columns() -> None:
         "ALTER TABLE sources ADD COLUMN IF NOT EXISTS auto_disabled_at TIMESTAMP",
         "ALTER TABLE articles ADD COLUMN IF NOT EXISTS next_retry_at TIMESTAMP",
         "ALTER TABLE articles ADD COLUMN IF NOT EXISTS title_tokens TEXT",
+        # Migration 010: preserve original title for editorial comparison
+        "ALTER TABLE articles ADD COLUMN IF NOT EXISTS original_title VARCHAR(500)",
     ]
     with engine.begin() as conn:
         for stmt in stmts:

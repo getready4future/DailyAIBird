@@ -616,6 +616,75 @@ def get_moderation_queue(
     )
 
 
+@router.get("/articles/{article_id}/compare", dependencies=[Depends(_check_token)])
+def get_article_compare(article_id: int, db: Session = Depends(get_db)):
+    """Side-by-side data for the editorial QA view: original scrape vs AI rewrite.
+
+    The 'original' column holds what came from the source (raw_content + the
+    title as we first saved it). The 'rewritten' column holds the Call A/B
+    output (current article.title, summary, scores, fidelity audit notes).
+    """
+    article = (
+        db.query(Article)
+        .options(joinedload(Article.source))
+        .filter(Article.id == article_id)
+        .first()
+    )
+    if article is None:
+        raise HTTPException(status_code=404, detail="Article not found")
+
+    # Tags are stored JSON
+    try:
+        tags = json.loads(article.tags) if article.tags else []
+    except Exception:
+        tags = []
+
+    body_word_count = len((article.summary or '').split())
+    raw_word_count = len((article.raw_content or '').split())
+
+    return {
+        "id": article.id,
+        "url": article.url,
+        "image_url": article.image_url,
+        "status": article.status,
+        "ai_processed": article.ai_processed,
+        "ai_processed_at": article.ai_processed_at,
+        "ai_attempt_count": article.ai_attempt_count,
+        "approved_at": article.approved_at,
+        "created_at": article.created_at,
+        "rejection_reason": article.rejection_reason,
+        "source": {
+            "id": article.source.id if article.source else None,
+            "name": article.source.name if article.source else None,
+            "url": article.source.url if article.source else None,
+            "slug": article.source.slug if article.source else None,
+        },
+        "original": {
+            "title": article.original_title or article.title,  # fallback for legacy rows
+            "content": article.raw_content,
+            "word_count": raw_word_count,
+            "author": article.author,
+            "published_at": article.published_at,
+        },
+        "rewritten": {
+            "title": article.title,
+            "body": article.summary,
+            "word_count": body_word_count,
+            "topic": article.topic,
+            "sentiment": article.sentiment,
+            "tags": tags,
+            "is_featured": article.is_featured,
+            "scores": {
+                "quality": article.quality_score,
+                "relevance": article.relevance_score,
+                "impact": article.impact_score,
+                "curiosity": article.curiosity_score,
+                "momentum": article.momentum_score,
+            },
+        },
+    }
+
+
 @router.post("/articles/{article_id}/approve", dependencies=[Depends(_check_token)])
 def approve_article(
     article_id: int,

@@ -2,10 +2,252 @@ import { useState, useEffect, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { formatDistanceToNow, format } from 'date-fns'
 import { fetchQueue, approveArticle, rejectArticle, triggerScrape, triggerDigest, getAdminToken } from '../api/admin'
+import { adminApi } from '../api/client'
 import type { ArticleAdmin } from '../types'
 import TopicBadge from '../components/ui/TopicBadge'
 import Spinner from '../components/ui/Spinner'
 import EmptyState from '../components/ui/EmptyState'
+
+interface CompareData {
+  id: number
+  url: string
+  status: string
+  ai_processed: boolean
+  ai_processed_at: string | null
+  ai_attempt_count: number
+  approved_at: string | null
+  created_at: string
+  rejection_reason: string | null
+  source: { id: number | null; name: string | null; url: string | null; slug: string | null }
+  original: {
+    title: string
+    content: string | null
+    word_count: number
+    author: string | null
+    published_at: string | null
+  }
+  rewritten: {
+    title: string
+    body: string | null
+    word_count: number
+    topic: string | null
+    sentiment: string | null
+    tags: string[]
+    is_featured: boolean
+    scores: {
+      quality: number | null
+      relevance: number | null
+      impact: number | null
+      curiosity: number | null
+      momentum: number
+    }
+  }
+}
+
+function CompareModal({ articleId, onClose }: { articleId: number; onClose: () => void }) {
+  const { data, isLoading, error } = useQuery<CompareData>({
+    queryKey: ['admin-article-compare', articleId],
+    queryFn: async () => {
+      const { data } = await adminApi.get(`/admin/articles/${articleId}/compare`)
+      return data
+    },
+  })
+
+  // Close on Escape
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-stretch justify-center bg-black/70 p-2 sm:p-6" onClick={onClose}>
+      <div
+        className="relative flex w-full max-w-7xl flex-col rounded-xl border border-gray-800 bg-gray-950 shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex shrink-0 items-center justify-between gap-4 border-b border-gray-800 px-6 py-4">
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500">Editorial QA</p>
+            <p className="text-sm font-semibold text-white">
+              Original vs AI Rewrite
+              {data && <span className="ml-2 text-gray-500 font-normal">#{data.id}</span>}
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            {data?.url && (
+              <a
+                href={data.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="rounded-lg border border-gray-700 px-3 py-1.5 text-[11px] font-medium text-gray-300 hover:text-white hover:border-gray-500 transition"
+              >
+                Open source ↗
+              </a>
+            )}
+            <button
+              onClick={onClose}
+              className="rounded-lg p-1.5 text-gray-500 hover:bg-gray-800 hover:text-white transition"
+              aria-label="Close"
+            >
+              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        {/* Body */}
+        {isLoading ? (
+          <div className="flex flex-1 items-center justify-center py-20"><Spinner /></div>
+        ) : error || !data ? (
+          <div className="flex-1 p-6 text-center text-red-400">Failed to load comparison.</div>
+        ) : (
+          <div className="flex-1 overflow-y-auto">
+            {/* Source bar */}
+            <div className="border-b border-gray-800/60 bg-gray-900/40 px-6 py-3">
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px] text-gray-400">
+                <span>
+                  Source:{' '}
+                  {data.source.url ? (
+                    <a href={data.source.url} target="_blank" rel="noopener noreferrer" className="text-gray-200 hover:text-brand-400 underline-offset-2 hover:underline">
+                      {data.source.name}
+                    </a>
+                  ) : (
+                    <span className="text-gray-200">{data.source.name ?? '—'}</span>
+                  )}
+                </span>
+                {data.original.author && <span>· by {data.original.author}</span>}
+                {data.original.published_at && (
+                  <span>· published {format(new Date(data.original.published_at), 'MMM d, HH:mm')}</span>
+                )}
+                {data.ai_processed_at && (
+                  <span>· AI processed {format(new Date(data.ai_processed_at), 'MMM d, HH:mm')}</span>
+                )}
+                <span className="ml-auto rounded-full border border-gray-700 px-2 py-0.5 text-[10px] uppercase tracking-wider">
+                  {data.status}
+                </span>
+              </div>
+            </div>
+
+            {/* Two columns */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 divide-x divide-gray-800/60">
+              {/* ── ORIGINAL ────────────────────────────────────────────── */}
+              <section className="p-6">
+                <p className="mb-3 text-[10px] font-bold uppercase tracking-[0.18em] text-gray-500">
+                  Original — from {data.source.name}
+                </p>
+                <h2 className="mb-2 text-xl font-bold leading-snug text-white">
+                  {data.original.title}
+                </h2>
+                <p className="mb-4 text-[11px] text-gray-600">
+                  {data.original.word_count.toLocaleString()} words {data.original.content ? '' : '· no body captured'}
+                </p>
+                {data.original.content ? (
+                  <pre className="whitespace-pre-wrap font-sans text-[13px] leading-[1.65] text-gray-300">
+                    {data.original.content}
+                  </pre>
+                ) : (
+                  <p className="text-[12px] text-gray-600 italic">
+                    No raw content saved for this article.
+                  </p>
+                )}
+              </section>
+
+              {/* ── REWRITTEN ──────────────────────────────────────────── */}
+              <section className="p-6 bg-gray-900/30">
+                <p className="mb-3 text-[10px] font-bold uppercase tracking-[0.18em] text-emerald-400">
+                  AI Rewrite — Daily AI Bird
+                  {data.rewritten.is_featured && (
+                    <span className="ml-2 text-amber-400">· ★ Featured</span>
+                  )}
+                </p>
+                <h2 className="mb-2 text-xl font-bold leading-snug text-white">
+                  {data.rewritten.title}
+                </h2>
+                <p className="mb-4 text-[11px] text-gray-600">
+                  {data.rewritten.word_count.toLocaleString()} words
+                  {data.rewritten.topic && <> · topic: <span className="text-gray-400">{data.rewritten.topic}</span></>}
+                  {data.rewritten.sentiment && <> · {data.rewritten.sentiment}</>}
+                </p>
+
+                {/* Scores grid */}
+                <div className="mb-4 grid grid-cols-2 gap-x-3 gap-y-2 rounded-lg border border-gray-800 bg-gray-950/50 p-3">
+                  {[
+                    { label: 'Quality',   v: data.rewritten.scores.quality },
+                    { label: 'Relevance', v: data.rewritten.scores.relevance },
+                    { label: 'Impact',    v: data.rewritten.scores.impact },
+                    { label: 'Curiosity', v: data.rewritten.scores.curiosity },
+                  ].map((s) => {
+                    const pct = s.v != null ? Math.round(s.v * 100) : null
+                    const colorClass = pct === null ? 'text-gray-700' : pct >= 75 ? 'text-emerald-400' : pct >= 50 ? 'text-amber-400' : 'text-red-400'
+                    return (
+                      <div key={s.label} className="flex items-baseline justify-between text-[11px]">
+                        <span className="text-gray-500 uppercase tracking-wider text-[9px]">{s.label}</span>
+                        <span className={`font-bold tabular-nums ${colorClass}`}>
+                          {pct === null ? '—' : `${pct}%`}
+                        </span>
+                      </div>
+                    )
+                  })}
+                  {data.rewritten.scores.momentum > 1 && (
+                    <div className="col-span-2 mt-1 pt-1 border-t border-gray-800/60 text-[10px] text-amber-500">
+                      🔥 Momentum: {data.rewritten.scores.momentum} sources
+                    </div>
+                  )}
+                </div>
+
+                {data.rewritten.body ? (
+                  <pre className="whitespace-pre-wrap font-sans text-[13px] leading-[1.65] text-gray-200">
+                    {data.rewritten.body}
+                  </pre>
+                ) : (
+                  <p className="text-[12px] text-gray-600 italic">No rewritten body — AI processing pending or failed.</p>
+                )}
+
+                {data.rewritten.tags.length > 0 && (
+                  <div className="mt-4 flex flex-wrap gap-1.5">
+                    {data.rewritten.tags.map((t) => (
+                      <span key={t} className="rounded bg-gray-800/60 px-2 py-0.5 text-[10px] text-gray-400">#{t}</span>
+                    ))}
+                  </div>
+                )}
+
+                {data.rejection_reason && (
+                  <div className="mt-4 rounded-lg border border-red-900/40 bg-red-950/20 px-3 py-2 text-[12px] text-red-400">
+                    <span className="font-semibold uppercase tracking-wider text-[10px]">Rejection reason:</span>{' '}
+                    {data.rejection_reason}
+                  </div>
+                )}
+              </section>
+            </div>
+
+            {/* Footer summary stats */}
+            <div className="border-t border-gray-800/60 bg-gray-900/40 px-6 py-3 text-[11px] text-gray-500">
+              <div className="flex flex-wrap items-center gap-x-5 gap-y-1">
+                <span>Word delta:{' '}
+                  <span className="font-mono tabular-nums text-gray-300">
+                    {data.original.word_count} → {data.rewritten.word_count}
+                  </span>
+                  {data.original.word_count > 0 && (
+                    <span className="ml-1 text-gray-700">
+                      ({Math.round((data.rewritten.word_count / data.original.word_count) * 100)}%)
+                    </span>
+                  )}
+                </span>
+                <span>· AI attempts: <span className="font-mono text-gray-300">{data.ai_attempt_count}</span></span>
+                {data.approved_at && (
+                  <span>· Approved {format(new Date(data.approved_at), 'MMM d, HH:mm')}</span>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
 
 type ScrapeEvent = {
   message: string
@@ -286,10 +528,11 @@ function QualityBar({ score }: { score: number | null }) {
   )
 }
 
-function ArticleReviewCard({ article, onApprove, onReject }: {
+function ArticleReviewCard({ article, onApprove, onReject, onCompare }: {
   article: ArticleAdmin
   onApprove?: (id: number) => void
   onReject?: (id: number) => void
+  onCompare?: (id: number) => void
 }) {
   const [showContent, setShowContent] = useState(false)
 
@@ -393,6 +636,16 @@ function ArticleReviewCard({ article, onApprove, onReject }: {
           </div>
         )}
 
+        {/* Compare row — always available */}
+        {onCompare && (
+          <button
+            onClick={() => onCompare(article.id)}
+            className="mb-2 w-full rounded-lg border border-gray-200 py-1.5 text-[11px] font-semibold text-gray-500 hover:border-brand-300 hover:text-brand-700 hover:bg-brand-50 transition"
+          >
+            ⇄ Compare original vs AI rewrite
+          </button>
+        )}
+
         {/* Action buttons */}
         {(onApprove || onReject) && (
           <div className="flex gap-2">
@@ -431,6 +684,7 @@ export default function AdminQueue() {
   const [page, setPage] = useState(1)
   const [tab, setTab] = useState<TabStatus>('pending_human')
   const [showPanel, setShowPanel] = useState(false)
+  const [compareId, setCompareId] = useState<number | null>(null)
 
   const { data: articles = [], isLoading } = useQuery({
     queryKey: ['admin-queue', tab, page],
@@ -465,6 +719,10 @@ export default function AdminQueue() {
             onDone={() => qc.invalidateQueries({ queryKey: ['admin-queue'] })}
           />
         </>
+      )}
+
+      {compareId !== null && (
+        <CompareModal articleId={compareId} onClose={() => setCompareId(null)} />
       )}
 
       {/* Page header */}
@@ -531,6 +789,7 @@ export default function AdminQueue() {
             <ArticleReviewCard
               key={a.id}
               article={a}
+              onCompare={(id) => setCompareId(id)}
               onApprove={
                 tab === 'pending_human' || tab === 'rejected' || tab === 'rejected_ai'
                   ? (id) => approveMut.mutate(id)

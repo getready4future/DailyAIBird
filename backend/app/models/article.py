@@ -14,7 +14,8 @@ class Article(Base):
     source_id: Mapped[int] = mapped_column(Integer, ForeignKey("sources.id"), nullable=False)
     external_id: Mapped[Optional[str]] = mapped_column(String(500))
     url: Mapped[str] = mapped_column(String(1000), unique=True, nullable=False)
-    title: Mapped[str] = mapped_column(String(500), nullable=False)
+    title: Mapped[str] = mapped_column(String(500), nullable=False)  # Call B may overwrite
+    original_title: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)  # preserved from scrape
     author: Mapped[Optional[str]] = mapped_column(String(200))
     published_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
 

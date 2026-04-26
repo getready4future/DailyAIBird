@@ -401,6 +401,8 @@ def process_article(article: Article, source_name: str, db: Session, *, context_
             "Article %d: %d numeric claims not found in source: %s — routing to human review",
             article.id, len(missing), missing[:5],
         )
+        if not article.original_title:
+            article.original_title = article.title  # legacy backfill — first overwrite preserves it
         article.title = final_headline
         article.summary = final_body
         article.impact_score = impact
@@ -420,6 +422,8 @@ def process_article(article: Article, source_name: str, db: Session, *, context_
         )
         return
 
+    if not article.original_title:
+        article.original_title = article.title  # legacy backfill — first overwrite preserves it
     article.title = final_headline
     article.summary = final_body
     article.impact_score = impact

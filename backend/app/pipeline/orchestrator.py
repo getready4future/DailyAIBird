@@ -137,6 +137,7 @@ async def _scrape_source(source_id: int) -> tuple[int, int]:
                 source_id=source.id,
                 url=article.url,
                 title=article.title,
+                original_title=article.title,  # preserve before Call B may overwrite
                 author=article.author,
                 published_at=article.published_at,
                 raw_content=article.raw_content,
