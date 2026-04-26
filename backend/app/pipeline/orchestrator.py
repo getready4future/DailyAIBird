@@ -74,15 +74,15 @@ async def _scrape_source(source: Source, db: Session) -> tuple[int, int]:
     new = 0
 
     from app.ai import progress as _prog
-    _prog.emit(f"{source.name} taranıyor…", kind="source_start", source=source.name)
+    _prog.emit(f"Scraping {source.name}…", kind="source_start", source=source.name)
 
     try:
-        _prog.emit(f"HTTP isteği gönderiliyor…", kind="fetch_start", source=source.name)
+        _prog.emit("Fetching articles…", kind="fetch_start", source=source.name)
         async with SCRAPE_SEMAPHORE:
             articles: list[ScrapedArticle] = await scraper.fetch_articles()
 
         found = len(articles)
-        _prog.emit(f"{found} makale alındı", kind="fetch_done", source=source.name, count=found)
+        _prog.emit(f"{found} articles fetched", kind="fetch_done", source=source.name, count=found)
 
         from app.config_store import get_max_articles_per_source
         global_max = get_max_articles_per_source()
@@ -104,7 +104,7 @@ async def _scrape_source(source: Source, db: Session) -> tuple[int, int]:
             if article.published_at and article.published_at < cutoff:
                 skip_old += 1
                 _prog.emit(article.title, kind="skip_old", source=source.name, url=article.url,
-                           reason=f"Eski içerik ({article.published_at.strftime('%d %b %H:%M') if article.published_at else '?'})")
+                           reason=f"Too old ({article.published_at.strftime('%d %b %H:%M') if article.published_at else '?'})")
                 continue
 
             # URL dedup
@@ -115,14 +115,14 @@ async def _scrape_source(source: Source, db: Session) -> tuple[int, int]:
             if exists:
                 skip_url += 1
                 _prog.emit(article.title, kind="skip_url", source=source.name, url=article.url,
-                           reason="URL zaten veritabanında")
+                           reason="URL already in database")
                 continue
 
             # Title near-dedup
             if any(titles_are_similar(article.title, t) for t in existing_titles):
                 skip_title += 1
                 _prog.emit(article.title, kind="skip_title", source=source.name, url=article.url,
-                           reason="Benzer başlık zaten mevcut")
+                           reason="Similar title already exists")
                 logger.debug("Near-duplicate title skipped: %s", article.title)
                 continue
 
@@ -161,7 +161,7 @@ async def _scrape_source(source: Source, db: Session) -> tuple[int, int]:
         db.commit()
 
         _prog.emit(
-            f"{source.name}: {new} yeni · {skip_old} eski · {skip_url} url-tekrar · {skip_title} başlık-tekrar",
+            f"{source.name}: {new} new · {skip_old} old · {skip_url} url-dup · {skip_title} title-dup",
             kind="source_done",
             source=source.name,
             new=new,
@@ -239,7 +239,7 @@ async def _ai_process_pending(db: Session) -> int:
     batch_size = _cfg().get("ai_batch_size", settings.AI_BATCH_SIZE)
     processed = 0
 
-    progress.emit(f"{total} makale AI analizine alınıyor", kind="ai_batch_start", total=total)
+    progress.emit(f"Starting AI analysis for {total} articles", kind="ai_batch_start", total=total)
 
     for i in range(0, total, batch_size):
         batch = pending[i: i + batch_size]
@@ -308,7 +308,7 @@ async def run_scrape_pipeline(source_slug: str = "all") -> dict:
             query = query.filter(Source.slug == source_slug)
         sources = query.all()
 
-        progress.emit(f"{len(sources)} kaynak taranacak…", kind="info")
+        progress.emit(f"Scraping {len(sources)} sources…", kind="info")
 
         # Run all scrapes concurrently
         tasks = [_scrape_source(src, db) for src in sources]
@@ -317,19 +317,19 @@ async def run_scrape_pipeline(source_slug: str = "all") -> dict:
         total_found = sum(r[0] for r in results if isinstance(r, tuple))
         total_new = sum(r[1] for r in results if isinstance(r, tuple))
 
-        progress.emit(f"Toplam {total_new} yeni makale bulundu", kind="scrape")
+        progress.emit(f"{total_new} new articles found across all sources", kind="scrape")
 
         if total_new > 0:
             deduped = _deduplicate_cross_source(db)
             if deduped:
-                progress.emit(f"{deduped} çapraz-kaynak tekrarı elendi", kind="info")
+                progress.emit(f"{deduped} cross-source duplicates removed", kind="info")
 
             from app.pipeline.clustering import cluster_pending_articles
             clustered = cluster_pending_articles(db)
             if clustered:
-                progress.emit(f"{clustered} makale story cluster'larına gruplandı", kind="info")
+                progress.emit(f"{clustered} articles grouped into story clusters", kind="info")
 
-            progress.emit("AI analizi başlıyor…", kind="info")
+            progress.emit("Starting AI analysis…", kind="info")
 
         # AI processing — async so sleeps yield to event loop (SSE flush)
         processed = await _ai_process_pending(db)
@@ -339,7 +339,7 @@ async def run_scrape_pipeline(source_slug: str = "all") -> dict:
 
         return {"sources_scraped": len(sources), "found": total_found, "new": total_new, "ai_processed": processed}
     except Exception as exc:
-        progress.emit(f"Hata: {exc}", kind="error")
+        progress.emit(f"Error: {exc}", kind="error")
         progress.finish()
         raise
     finally:

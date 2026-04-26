@@ -7,7 +7,8 @@ from app.models.article import Article
 
 router = APIRouter(prefix="/topics", tags=["topics"])
 
-TOPICS = ["Models", "Tools", "Research", "Products", "Policy", "Open Source", "Industry", "Safety"]
+# These slugs must match what the AI assigns in Call A (QUALITY_CHECK_PROMPT)
+TOPICS = ["research", "products", "policy", "business", "safety", "open_source", "tools", "agents"]
 
 
 @router.get("")

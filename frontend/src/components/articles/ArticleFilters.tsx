@@ -1,6 +1,7 @@
 import { useSearchParams } from 'react-router-dom'
+import { topicLabel } from '../ui/TopicBadge'
 
-const TOPICS = ['Models', 'Tools', 'Research', 'Products', 'Policy', 'Open Source', 'Industry', 'Safety']
+const TOPICS = ['research', 'products', 'policy', 'business', 'safety', 'open_source', 'tools', 'agents']
 
 export default function ArticleFilters() {
   const [params, setParams] = useSearchParams()
@@ -35,7 +36,7 @@ export default function ArticleFilters() {
                 : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
             }`}
           >
-            {t}
+            {topicLabel(t)}
           </button>
         ))}
         {activeTopic && (

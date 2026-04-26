@@ -2,6 +2,7 @@ import { useSearchParams } from 'react-router-dom'
 import { useArticles } from '../hooks/useArticles'
 import ArticleGrid from '../components/articles/ArticleGrid'
 import ArticleFilters from '../components/articles/ArticleFilters'
+import { topicLabel } from '../components/ui/TopicBadge'
 import Spinner from '../components/ui/Spinner'
 
 export default function Home() {
@@ -36,7 +37,7 @@ export default function Home() {
               </span>
             </div>
             <h1 className="text-3xl font-extrabold tracking-tight text-gray-950">
-              {topic ? `${topic.replace('_', ' ')} News` : "Today's AI News"}
+              {topic ? `${topicLabel(topic)} News` : "Today's AI News"}
             </h1>
             <p className="mt-1 text-sm text-gray-400">
               Surfaced, summarised, and scored — updated continuously

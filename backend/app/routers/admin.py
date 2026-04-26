@@ -61,22 +61,6 @@ def reset_admin_password(body: ResetPasswordRequest, db: Session = Depends(get_d
     return {"ok": True, "message": "Admin password updated"}
 
 
-@router.get("/debug-auth")
-def debug_auth(db: Session = Depends(get_db)):
-    """Temporary debug endpoint — remove after fixing login."""
-    user = db.query(AdminUser).filter(AdminUser.username == "admin").first()
-    if not user:
-        return {"admin_exists": False}
-    test_passwords = ["Burak", "burak", "change-me-in-production"]
-    matches = {p: verify_password(p, user.password_hash) for p in test_passwords}
-    return {
-        "admin_exists": True,
-        "is_active": user.is_active,
-        "password_matches": matches,
-        "admin_secret_prefix": settings.ADMIN_SECRET[:8] + "...",
-        "admin_password_env": (settings.ADMIN_PASSWORD[:3] + "...") if settings.ADMIN_PASSWORD else "(not set)",
-    }
-
 
 @router.post("/login")
 def admin_login(body: LoginRequest, db: Session = Depends(get_db)):

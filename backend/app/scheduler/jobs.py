@@ -3,6 +3,7 @@ from datetime import datetime, timedelta
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
+from apscheduler.triggers.interval import IntervalTrigger
 
 from app.config import settings
 from app.database import SessionLocal
@@ -37,19 +38,24 @@ def _run_cleanup():
 def create_scheduler() -> AsyncIOScheduler:
     scheduler = AsyncIOScheduler(timezone="UTC")
 
+    # Run scrape every 6 hours so articles stay fresh throughout the day.
+    # Hours 0, 6, 12, 18 UTC — replacing the old single daily scrape.
     scheduler.add_job(
         _run_scrape,
-        CronTrigger(hour=settings.SCRAPE_SCHEDULE_HOUR, minute=0),
-        id="daily_scrape",
+        CronTrigger(hour="0,6,12,18", minute=0),
+        id="scrape_6h",
         max_instances=1,
         misfire_grace_time=3600,
+        coalesce=True,
     )
 
+    # Digest runs after the morning scrape has had time to process
     scheduler.add_job(
         _run_digest,
         CronTrigger(hour=settings.DIGEST_SCHEDULE_HOUR, minute=15),
         id="daily_digest",
         max_instances=1,
+        coalesce=True,
     )
 
     scheduler.add_job(

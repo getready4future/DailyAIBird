@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom'
 import { useTopics } from '../hooks/useTopics'
-import TopicBadge from '../components/ui/TopicBadge'
+import TopicBadge, { topicLabel } from '../components/ui/TopicBadge'
 import Spinner from '../components/ui/Spinner'
 
 export default function Topics() {
