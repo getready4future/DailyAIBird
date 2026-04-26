@@ -122,17 +122,20 @@ def _get_openai():
     return _openai_client
 
 
-def _call_openrouter(prompt: str, max_tokens: int) -> str:
+def _call_openrouter(prompt: str, max_tokens: int, temperature: float | None = None) -> str:
     global _openrouter_ok, _openrouter_cooldown_until
     from openai import RateLimitError
     client = _get_openrouter()
+    kwargs = {
+        "model": get_openrouter_model(),
+        "max_tokens": max_tokens,
+        "messages": [{"role": "user", "content": prompt}],
+        "timeout": 90,
+    }
+    if temperature is not None:
+        kwargs["temperature"] = temperature
     try:
-        response = client.chat.completions.create(
-            model=get_openrouter_model(),
-            max_tokens=max_tokens,
-            messages=[{"role": "user", "content": prompt}],
-            timeout=90,
-        )
+        response = client.chat.completions.create(**kwargs)
         with _state_lock:
             _openrouter_ok = True
             _openrouter_cooldown_until = 0.0
@@ -150,29 +153,35 @@ def _call_openrouter(prompt: str, max_tokens: int) -> str:
         raise RuntimeError(f"OpenRouter error: {exc}") from exc
 
 
-def _call_nvidia(prompt: str, max_tokens: int) -> str:
+def _call_nvidia(prompt: str, max_tokens: int, temperature: float | None = None) -> str:
     mx = _get_nvidia()
-    text, model_name = mx.chat(
-        messages=[{"role": "user", "content": prompt}],
-        max_tokens=max_tokens,
-    )
+    chat_kwargs: dict = {"messages": [{"role": "user", "content": prompt}], "max_tokens": max_tokens}
+    if temperature is not None:
+        chat_kwargs["temperature"] = temperature
+    try:
+        text, model_name = mx.chat(**chat_kwargs)
+    except TypeError:
+        # NvidiaMultiplex may not yet accept temperature — fall back silently
+        text, model_name = mx.chat(messages=[{"role": "user", "content": prompt}], max_tokens=max_tokens)
     logger.info("NVIDIA used: %s", model_name)
     return text
 
 
-def _call_generic(prompt: str, max_tokens: int) -> str:
+def _call_generic(prompt: str, max_tokens: int, temperature: float | None = None) -> str:
     from openai import RateLimitError
     client = _get_openai()
+    kwargs: dict = {
+        "model": settings.AI_MODEL,
+        "max_tokens": max_tokens,
+        "messages": [{"role": "user", "content": prompt}],
+    }
+    if temperature is not None:
+        kwargs["temperature"] = temperature
     try:
-        response = client.chat.completions.create(
-            model=settings.AI_MODEL,
-            max_tokens=max_tokens,
-            messages=[{"role": "user", "content": prompt}],
-        )
+        response = client.chat.completions.create(**kwargs)
         return response.choices[0].message.content or ""
     except RateLimitError:
         logger.warning("Generic AI rate limit — waiting 30s")
-        # Use asyncio.sleep if running inside an event loop, else time.sleep
         try:
             loop = asyncio.get_running_loop()
             import concurrent.futures
@@ -180,15 +189,11 @@ def _call_generic(prompt: str, max_tokens: int) -> str:
                 ex.submit(time.sleep, 30).result()
         except RuntimeError:
             time.sleep(30)
-        response = client.chat.completions.create(
-            model=settings.AI_MODEL,
-            max_tokens=max_tokens,
-            messages=[{"role": "user", "content": prompt}],
-        )
+        response = client.chat.completions.create(**kwargs)
         return response.choices[0].message.content or ""
 
 
-def call_claude(prompt: str, max_tokens: int = 1024) -> str:
+def call_claude(prompt: str, max_tokens: int = 1024, temperature: float | None = None) -> str:
     """
     Calls the active provider first, falls back to the others.
     If OpenRouter is in a 429 cooldown window, it is moved to the end of the
@@ -214,11 +219,11 @@ def call_claude(prompt: str, max_tokens: int = 1024) -> str:
     for p in order:
         try:
             if p == "openrouter" and settings.OPENROUTER_API_KEY:
-                return _call_openrouter(prompt, max_tokens)
+                return _call_openrouter(prompt, max_tokens, temperature)
             elif p == "nvidia" and settings.NVIDIA_API_KEY:
-                return _call_nvidia(prompt, max_tokens)
+                return _call_nvidia(prompt, max_tokens, temperature)
             elif p == "generic" and settings.AI_API_KEY:
-                return _call_generic(prompt, max_tokens)
+                return _call_generic(prompt, max_tokens, temperature)
         except Exception as exc:
             logger.warning("Provider %s failed: %s — trying next", p, exc)
             last_exc = exc

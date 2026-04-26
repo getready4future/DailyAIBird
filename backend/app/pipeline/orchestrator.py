@@ -282,29 +282,67 @@ async def _ai_process_pending(db: Session) -> int:
 
 
 def _flag_featured(db: Session) -> None:
-    """Mark top articles of the past 24h as featured, ranked by combined relevance+impact score."""
-    from sqlalchemy import func as sqlfunc
+    """Mark top articles of the past 24h as featured.
+
+    Ranking combines:
+      - relevance / impact / curiosity / momentum (the existing axes)
+      - recency decay: 1.0 for fresh, 0.85 for 24h-old (linear)
+      - topic diversity cap: max 2 featured articles per topic
+    """
     cfg = _cfg()
-    cutoff = datetime.utcnow() - timedelta(hours=24)
-    momentum_boost = sqlfunc.least(sqlfunc.coalesce(Article.momentum_score, 1), 5) / 5.0
-    combined = (
-        sqlfunc.coalesce(Article.relevance_score, 0) * 0.35
-        + sqlfunc.coalesce(Article.impact_score, 0) * 0.25
-        + sqlfunc.coalesce(Article.curiosity_score, 0) * 0.25
-        + momentum_boost * 0.15
-    )
-    top = (
+    now = datetime.utcnow()
+    cutoff = now - timedelta(hours=24)
+    feature_min = cfg.get("feature_min_score", FEATURE_MIN_SCORE)
+    top_n = cfg.get("top_featured", TOP_FEATURED)
+    max_per_topic = cfg.get("max_featured_per_topic", 2)
+
+    # Pull the candidate pool — broader than top_n so diversity cap has options.
+    candidates = (
         db.query(Article)
         .filter(
             Article.status == "published",
-            combined >= cfg.get("feature_min_score", FEATURE_MIN_SCORE),
             Article.published_at >= cutoff,
         )
-        .order_by(combined.desc())
-        .limit(cfg.get("top_featured", TOP_FEATURED))
         .all()
     )
-    for article in top:
+
+    def score(a: Article) -> float:
+        relevance = a.relevance_score or 0.0
+        impact = a.impact_score or 0.0
+        curiosity = a.curiosity_score or 0.0
+        momentum = min(a.momentum_score or 1, 5) / 5.0
+        # Recency decay: 1.0 at now, 0.85 at 24h boundary, linear.
+        if a.published_at:
+            age_hours = max(0.0, (now - a.published_at).total_seconds() / 3600.0)
+            recency = 1.0 - (min(age_hours, 24.0) / 24.0) * 0.15
+        else:
+            recency = 0.85
+        base = relevance * 0.35 + impact * 0.25 + curiosity * 0.25 + momentum * 0.15
+        return base * recency
+
+    scored = [(a, score(a)) for a in candidates]
+    scored = [(a, s) for (a, s) in scored if s >= feature_min]
+    scored.sort(key=lambda t: t[1], reverse=True)
+
+    # Topic diversity cap
+    selected: list[Article] = []
+    per_topic: dict[str, int] = {}
+    for article, _ in scored:
+        topic_key = article.topic or "_untagged"
+        if per_topic.get(topic_key, 0) >= max_per_topic:
+            continue
+        selected.append(article)
+        per_topic[topic_key] = per_topic.get(topic_key, 0) + 1
+        if len(selected) >= top_n:
+            break
+
+    # Reset previous featured flags within the window so the set stays current.
+    db.query(Article).filter(
+        Article.is_featured.is_(True),
+        Article.published_at >= cutoff,
+    ).update({Article.is_featured: False}, synchronize_session=False)
+
+    for article in selected:
         article.is_featured = True
     db.commit()
 

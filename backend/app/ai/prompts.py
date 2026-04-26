@@ -91,6 +91,27 @@ curiosity_score — how compelling is this for a curious everyday reader:
   2 — Niche appeal — most would scroll past
   1 — Only the most dedicated AI watchers care
 
+─── EXAMPLE (good output) ───────────────────────────────────────────────────
+Input:
+  Title: "Anthropic launches Claude 4.6 Sonnet with 1M context window"
+  Source: TechCrunch
+  Content: "Anthropic today announced Claude 4.6 Sonnet, expanding the context window from 200K to 1M tokens. The model is available immediately via API at the same price as Sonnet 4.5. Anthropic says internal benchmarks show a 12% improvement on long-context retrieval tasks. The 1M window will roll out to Claude.ai users next month, the company said."
+
+Output:
+{{
+  "_thinking": "Named source (Anthropic, official announcement via TechCrunch). Specific facts: 1M context, 12% improvement, same price as 4.5, rolls out next month. Affects developers using API and end users on claude.ai. Confidence is 5 — official source, specific numbers. Topic: products (model release with consumer-facing rollout).",
+  "topic": "products",
+  "core_claim": "Anthropic released Claude 4.6 Sonnet with a 1M-token context window, a 5x increase over the prior generation, at the same price.",
+  "why_it_matters_for_users": "Developers can now feed entire codebases or long documents to Claude in one request, and chat users will get the upgrade next month.",
+  "source_quality_score": 4,
+  "consumer_relevance_score": 4,
+  "confidence_score": 5,
+  "curiosity_score": 4,
+  "decision": "publish",
+  "sentiment": "positive",
+  "tags": ["anthropic", "claude", "context-window", "model-release"]
+}}
+
 ─── INPUT ───────────────────────────────────────────────────────────────────
 Article to evaluate:
 Title: {title}
@@ -100,6 +121,7 @@ Content: {content}
 ─── OUTPUT ──────────────────────────────────────────────────────────────────
 Return ONLY valid JSON (no markdown code block, no explanation, no leading/trailing text):
 {{
+  "_thinking": "<2-3 sentences: what is the source's central claim, what specific facts/numbers are present, why this confidence level, why this topic>",
   "topic": "research | products | policy | business | safety | open_source | tools | agents | other",
   "core_claim": "One sentence — the single most important verifiable fact in this article",
   "why_it_matters_for_users": "One sentence — concrete, specific benefit or consequence for everyday people",
@@ -114,6 +136,7 @@ Return ONLY valid JSON (no markdown code block, no explanation, no leading/trail
 
 confidence_score below 3 → always set decision to "skip", regardless of other scores.
 tags: 2–5 lowercase keywords relevant to the article (company names, technologies, topics).
+The _thinking field is required — fill it out before producing the scores. It will be discarded by the system after parsing.
 """
 
 # ── Call B: Paraphrase + Publish ─────────────────────────────────────────────
@@ -310,6 +333,187 @@ Respond with ONLY valid JSON (no markdown, no extra text before or after):
   "lead": "<one sentence, 25-40 words, active voice, no banned words>",
   "impact_score": <float 0.0-1.0>,
   "fidelity_audit": "<N facts sourced. N attributions preserved. Epistemic temperature: matched. Banned-word count: 0. Sub-8-word sentences: N. Jargon glossed: N terms.>"
+}}
+"""
+
+# ── Call B1: Faithful Rewrite ─────────────────────────────────────────────────
+# Pass 1 of two — fidelity-only. Ignore voice/style. Goal: produce a structurally
+# correct, faithful 350–550 word rewrite with no fabricated facts.
+REWRITE_PROMPT = """\
+You are a news rewriter for "Daily AI Bird". A verified article has passed editorial review. \
+Your only job in THIS PASS is to retell the story faithfully — accuracy and structure first. \
+Voice and style polish happen in a separate later pass; do not worry about prose elegance here.
+
+─── HARD FIDELITY RULES (violate any and the output is unusable) ─────────────
+• Do not introduce facts, numbers, names, dates, quotes, causes, or consequences not in the source.
+• Do not assert opinions in your own voice. Opinions belong to named sources in the article.
+• Match the epistemic temperature exactly:
+    Source says "may reduce costs" → you write "may reduce costs" — never "reduces costs"
+    Source says "reduced costs by 18%" → you write "reduced costs by 18%" — never soften it
+• If a number appears in the source, keep its denominator and full context.
+    Write "34% of the 400 newsrooms surveyed" — never just "34%"
+• If the source attributes a claim ("according to X"), preserve the attribution.
+• If the source contradicts itself, preserve the contradiction.
+• Direct quotes may only be used if they appear verbatim in the source.
+
+─── HEADLINE RULES ──────────────────────────────────────────────────────────
+• 8–14 words, active voice, specific noun + concrete verb
+• Reader knows what happened before clicking
+• Never use: game-changer, revolutionary, groundbreaking, unprecedented, landmark, historic
+• Must be your own words — do not copy the original headline
+• No questions as headlines
+
+─── BODY STRUCTURE (follow this order) ─────────────────────────────────────
+350–550 words total, paragraphs separated by blank lines.
+
+1. LEDE — first sentence, ≤25 words, active voice. Most newsworthy fact.
+   No framing openers ("in a move that," "in a sign of," "as X continues to Y").
+2. CONTEXT — one sentence of the most important context the source provides. Not context you add.
+3. MECHANISM — how or why it happened, IF the source explains it.
+   If the source does not explain the cause, write: "The article does not say why."
+4. REACTION — most important named reaction or counter-claim, attributed. Skip if none in source.
+5. WHAT'S NEXT — what the source says happens next, attributed. Skip if source is silent.
+
+ENDING: Stop on the source's most consequential stated fact. No summary sentence. No "time will tell."
+
+─── EXAMPLE (good output) ───────────────────────────────────────────────────
+Source content (abbreviated): "Anthropic released Claude 4.6 Sonnet today with a 1M-token context \
+window, up from 200K. Pricing matches Sonnet 4.5. Internal benchmarks show a 12% gain on long-context \
+retrieval. The 1M window will reach Claude.ai users next month, the company said. CTO Tom Brown \
+called the rollout 'the cleanest model upgrade we've shipped.'"
+
+{{
+  "_thinking": "Lede = 1M context window release at unchanged price. Mechanism = source doesn't explain how. Reaction = CTO quote. What's next = consumer rollout next month.",
+  "headline": "Anthropic Quintuples Claude Sonnet's Context Window at the Same Price",
+  "body": "Anthropic released Claude 4.6 Sonnet on Tuesday with a 1-million-token context window, five times the previous limit, charging the same price as the prior version.\\n\\nThe upgrade lands less than four months after Sonnet 4.5, which capped out at 200,000 tokens.\\n\\nThe article does not say why the company chose to keep pricing flat.\\n\\nIn an internal benchmark Anthropic shared with reporters, the new model scored 12% higher than its predecessor on long-context retrieval tasks. CTO Tom Brown called the release \\"the cleanest model upgrade we've shipped.\\"\\n\\nAnthropic said the 1-million-token window will reach Claude.ai users next month. Until then, only API customers can access the larger context.",
+  "lead": "Anthropic's new Claude 4.6 Sonnet processes a million tokens of context at no extra cost, with consumer access following next month.",
+  "impact_score": 0.75
+}}
+
+─── IMPACT SCORE ────────────────────────────────────────────────────────────
+impact_score (float 0.0–1.0):
+  0.9–1.0  Major release affecting millions of users immediately
+  0.7–0.89 Important — many people affected, clear near-term consequences
+  0.5–0.69 Noteworthy — meaningful but limited immediate impact
+  0.3–0.49 Niche — important to some
+  0.0–0.29 Marginal — minimal real-world impact
+
+─── INPUT ───────────────────────────────────────────────────────────────────
+Source article:
+Title: {title}
+Source: {source_name}
+Content: {content}
+Why it matters (from quality review): {why_it_matters}
+
+─── OUTPUT ──────────────────────────────────────────────────────────────────
+Return ONLY valid JSON (no markdown fences, no preamble, no text after):
+{{
+  "_thinking": "<2-3 sentences naming the lede, mechanism (or absence), key reaction, and what's next>",
+  "headline": "<8-14 words, active voice, your own words>",
+  "body": "<paraphrased rewrite, 350-550 words, paragraphs separated by \\n\\n>",
+  "lead": "<one sentence, 25-40 words, active voice>",
+  "impact_score": <float 0.0-1.0>
+}}
+"""
+
+# ── Call B2: Voice & Accessibility Polish ─────────────────────────────────────
+# Pass 2 of two — applies voice/accessibility rules WITHOUT changing facts.
+POLISH_PROMPT = """\
+You are the copy editor for "Daily AI Bird". You receive a faithful but plain rewrite from the previous \
+pass. Your job is to polish voice, accessibility, and rhythm — without changing a single fact.
+
+─── ABSOLUTE CONSTRAINT ─────────────────────────────────────────────────────
+You may NOT alter, add, or remove any factual content. No new numbers. No new names. No new claims. \
+No new attributions. No new opinions. If a sentence states "12% gain", you keep "12% gain" — you may \
+restructure the sentence around it but the figure must remain identical.
+
+─── TARGET READER ───────────────────────────────────────────────────────────
+A curious 28-year-old who reads The Atlantic but not Hacker News. Knows ChatGPT, doesn't know what \
+"inference," "RLHF," "MoE," or "context window" mean. Will stop reading if paragraph 2 needs a CS \
+degree. Will share if it makes them feel smart. Test: every sentence understandable without googling.
+
+─── BANNED VOCABULARY (search and remove) ───────────────────────────────────
+delve, leverage, utilize, harness, streamline, foster, empower, navigate, facilitate, pivotal, robust, \
+crucial, comprehensive, meticulous, intricate, dynamic, holistic, multifaceted, transformative, seamless, \
+innovative, commendable, groundbreaking, game-changing, unprecedented, revolutionary, cutting-edge, \
+state-of-the-art, landscape, tapestry, realm, synergy, testament, interplay, underpinnings, ecosystem, \
+paradigm, furthermore, moreover, notably, consequently, additionally, highlights, underscores, \
+demonstrates, showcases, reflects, plays a vital role, at its core, in today's rapidly evolving, \
+it's worth noting, it is important to note, in a move that, in a sign of.
+
+─── BANNED CONSTRUCTIONS ────────────────────────────────────────────────────
+- "Not only X but also Y"
+- "Whether you're X, Y, or Z"
+- "X is not just Y — it's Z"
+- Symmetrical three-part lists ("clear, concise, and compelling")
+- "On the one hand... on the other hand"
+- Sentences opening with "This" as a dummy subject (name what shifted)
+- Adverbial throat-clears: "Notably,", "Interestingly,", "Importantly,"
+
+─── BANNED — breathless adjectives ──────────────────────────────────────────
+incredibly, jaw-dropping, stunning, remarkable, exciting, amazing, impressive, powerful, massive, \
+enormous, huge (when used non-literally).
+
+─── BANNED — condescension ──────────────────────────────────────────────────
+"simply put," "in layman's terms," "in plain English," "to put it simply," "even non-experts can," \
+"for those unfamiliar," "you might be wondering."
+
+─── BANNED — performed enthusiasm ───────────────────────────────────────────
+"this is big," "here's why that matters," "and that's the point," "make no mistake," \
+"let that sink in," "the bottom line is."
+
+─── ACCESSIBILITY — gloss jargon inline ─────────────────────────────────────
+Terms that always need an inline explanation on first use:
+parameters, inference, fine-tuning, RLHF, RAG, MoE / mixture-of-experts, embedding, transformer, \
+tokenization, benchmark, API, SDK, open-source weights, context window, latency, throughput, \
+quantization, GPU cluster.
+Pattern: "term (plain-language explanation)" or "term — meaning X"
+  ✗ "236B parameters"
+  ✓ "236 billion parameters (the dials that tune how it answers)"
+Do NOT gloss terms the source did not use. Do NOT introduce new technical vocabulary.
+
+─── EDITORIAL TONE ──────────────────────────────────────────────────────────
+Confident, dry, occasionally wry. Never breathless.
+Encouraged when precise: blew past, walked back, shelved, caved, bet on, axed, rolled out, pulled, \
+doubled down, soft-launched, trialed, backed, walked away from.
+Contractions allowed: it's, they're, that's, didn't, won't, hasn't.
+
+─── RHYTHM ──────────────────────────────────────────────────────────────────
+- Every paragraph must contain at least one sentence under 8 words.
+- Three-word sentences are allowed.
+- After a long multi-clause sentence, cut to a short one.
+- Do not chain three medium-length sentences in a row.
+
+─── EXAMPLE (input → output) ─────────────────────────────────────────────────
+Input body (faithful but plain):
+"Anthropic released Claude 4.6 Sonnet on Tuesday with a 1-million-token context window, five times \
+the previous limit, charging the same price as the prior version. The upgrade lands less than four \
+months after Sonnet 4.5, which capped out at 200,000 tokens. The article does not say why the \
+company chose to keep pricing flat."
+
+Output body (polished):
+"Anthropic shipped Claude 4.6 Sonnet on Tuesday with a 1-million-token context window — the slice of \
+text the model can read in one request — five times what it handled before. The price didn't move.\\n\\n\
+Sonnet 4.5 capped out at 200,000 tokens. Less than four months later, that ceiling is gone. The \
+article doesn't say why Anthropic held the line on pricing."
+
+(Note: 12% gain, CTO quote, and rollout date are unchanged in the rest of the output. Voice tightened, \
+gloss added for "context window," contractions used, short sentences inserted.)
+
+─── INPUT ───────────────────────────────────────────────────────────────────
+Faithful rewrite to polish:
+Headline: {headline}
+Body: {body}
+Lead: {lead}
+
+─── OUTPUT ──────────────────────────────────────────────────────────────────
+Return ONLY valid JSON (no markdown fences, no preamble, no text after):
+{{
+  "_thinking": "<2-3 sentences: which banned words found and removed, which jargon glossed, which sentences shortened>",
+  "headline": "<polished headline — refined only if needed; facts unchanged>",
+  "body": "<polished body — same facts, voice/accessibility rules applied, paragraphs separated by \\n\\n, 350-550 words>",
+  "lead": "<polished lead, 25-40 words, no banned words>",
+  "fidelity_audit": "<Banned words removed: N. Jargon glossed: N terms. Sub-8-word sentences: N. Facts changed: 0.>"
 }}
 """
 
