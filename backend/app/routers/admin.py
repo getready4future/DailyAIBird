@@ -73,11 +73,6 @@ def admin_login(body: LoginRequest, db: Session = Depends(get_db)):
 
     password_ok = verify_password(body.password, user.password_hash)
 
-    # If hash doesn't match, allow login via ADMIN_PASSWORD env var as master key
-    if not password_ok and settings.ADMIN_PASSWORD and body.password == settings.ADMIN_PASSWORD:
-        user.password_hash = hash_password(body.password)  # sync the hash
-        password_ok = True
-
     if not password_ok:
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
@@ -250,7 +245,8 @@ def delete_source(source_id: int, db: Session = Depends(get_db)):
         return {"deleted": source_id}
     except Exception as exc:
         db.rollback()
-        raise HTTPException(status_code=500, detail=f"{type(exc).__name__}: {exc}")
+        logger.error("Failed to delete source %d: %s", source_id, exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 # ── AI Models Status ──────────────────────────────────────────────────────────

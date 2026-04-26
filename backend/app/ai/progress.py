@@ -24,7 +24,7 @@ def emit(message: str, kind: str = "info", **extra) -> None:
 
 def finish() -> None:
     global _active
-    emit("Scraping tamamlandı!", kind="done")
+    emit("Scraping completed!", kind="done")
     with _lock:
         _active = False
 

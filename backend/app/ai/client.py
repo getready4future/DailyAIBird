@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import threading
 import time
@@ -171,7 +172,14 @@ def _call_generic(prompt: str, max_tokens: int) -> str:
         return response.choices[0].message.content or ""
     except RateLimitError:
         logger.warning("Generic AI rate limit — waiting 30s")
-        time.sleep(30)
+        # Use asyncio.sleep if running inside an event loop, else time.sleep
+        try:
+            loop = asyncio.get_running_loop()
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
+                ex.submit(time.sleep, 30).result()
+        except RuntimeError:
+            time.sleep(30)
         response = client.chat.completions.create(
             model=settings.AI_MODEL,
             max_tokens=max_tokens,
@@ -248,7 +256,7 @@ def stream_claude(prompt: str, max_tokens: int = 1024) -> Generator[str, None, N
                 yield chunk.choices[0].delta.content
     except RateLimitError:
         logger.warning("%s rate limit (stream) — 30s retry", label)
-        time.sleep(30)
+        time.sleep(30)  # sync generator — caller must use asyncio.to_thread if in async context
         stream = client.chat.completions.create(
             model=model, max_tokens=max_tokens,
             messages=[{"role": "user", "content": prompt}],

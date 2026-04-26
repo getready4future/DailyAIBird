@@ -42,3 +42,10 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+import logging as _logging
+if settings.ADMIN_SECRET == "change-me-in-production":
+    _logging.getLogger(__name__).critical(
+        "ADMIN_SECRET is set to the default value 'change-me-in-production'. "
+        "Set a strong secret in your .env file before deploying to production."
+    )

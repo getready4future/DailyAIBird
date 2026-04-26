@@ -21,13 +21,13 @@ export default function AdminLogin() {
       navigate('/admin', { replace: true })
     } catch (err: any) {
       if (err?.code === 'ERR_NETWORK' || err?.message === 'Network Error') {
-        setError(`Sunucuya ulaşılamıyor. API URL: ${import.meta.env.VITE_API_URL || '(boş)'}`)
+        setError(`Cannot reach server. API URL: ${import.meta.env.VITE_API_URL || '(not set)'}`)
       } else if (err?.response?.status === 401) {
-        setError('Hatalı kullanıcı adı veya şifre.')
+        setError('Invalid username or password.')
       } else if (err?.response?.status === 0 || !err?.response) {
-        setError(`CORS veya network hatası. Origin: ${window.location.origin}`)
+        setError(`CORS or network error. Origin: ${window.location.origin}`)
       } else {
-        setError(`Hata ${err?.response?.status}: ${err?.response?.data?.detail || err?.message}`)
+        setError(`Error ${err?.response?.status}: ${err?.response?.data?.detail || err?.message}`)
       }
     } finally {
       setLoading(false)
@@ -79,7 +79,7 @@ export default function AdminLogin() {
                 onClick={() => setShowPassword(v => !v)}
                 className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300 transition text-xs"
               >
-                {showPassword ? 'Gizle' : 'Göster'}
+                {showPassword ? 'Hide' : 'Show'}
               </button>
             </div>
           </div>
