@@ -32,6 +32,59 @@ All notable changes to Daily AI Bird are documented here.
 - **Removed `GET /api/v1/admin/debug-auth` endpoint** — this unauthenticated endpoint revealed admin existence, tested three hardcoded passwords (including a developer name), and exposed partial secrets. Removed entirely
 - **Turkish SSE messages translated to English** — all pipeline progress events emitted via SSE (scrape start, fetch done, skip reasons, AI batch start, cross-source dedup, cluster, error) are now in English, removing the frontend dependency on Turkish string parsing
 
+### Performance
+
+- **N+1 queries eliminated** — `joinedload(Article.source)` added to article list, article detail, moderation queue, and scrape runs endpoints; eliminates a per-row DB round-trip when serialising `source` in `ArticleOut`
+- **Source ID index** — `ix_articles_source_id` index added to the `articles` table for faster FK joins
+- **Connection pooling** — non-SQLite deployments now get `pool_size=10, max_overflow=20` on the SQLAlchemy engine
+- **Async digest scheduler** — `_run_digest` converted to `async def` using `asyncio.to_thread` so the digest pipeline doesn't block the event loop
+
+### SEO
+
+- **react-helmet-async** — `HelmetProvider` added at app root; per-route `<Helmet>` blocks on Home, ArticleDetail, DailyDigest, and Topics
+- **ArticleDetail JSON-LD** — `NewsArticle` and `BreadcrumbList` structured data injected client-side
+- **Topic-aware titles** — Home page title updates to `"{Topic} AI News — Daily AI Bird"` when a topic filter is active
+- **Pagination rel links** — `<link rel="prev">` / `<link rel="next">` injected via Helmet on paginated home pages
+- **Semantic pagination** — Previous/Next pagination buttons replaced with `<a href>` elements; click handlers prevent full-page navigation while keeping URLs crawlable
+
+### Accessibility
+
+- **Image alt text** — all three ArticleCard variants (hero, large, default) and the ArticleDetail hero image now carry `alt={article.title}`
+- **Breadcrumb text size** — bumped from `text-xs` to `text-sm` for legibility
+
+### Mobile
+
+- **Hamburger menu** — Header now renders a collapsed nav on mobile with an animated three-line toggle; desktop nav hidden below `md:` breakpoint
+- **Mobile dropdown** — full-width slide-in nav with active-route highlighting; closes on link tap
+
+### WCAG Contrast
+
+- **TopicBadge** — policy, business, and safety badge text darkened from `*-800` to `*-900` for WCAG AA compliance
+- **Footer bottom bar** — `text-gray-400` → `text-gray-500` on `bg-gray-50`
+- **Nav links** — `text-gray-400` → `text-gray-300` for better contrast on `bg-gray-950` header
+
+### Security
+
+- **CORS** — `allow_methods: "*"` restricted to explicit verb list; `expose_headers: "*"` narrowed to `["Content-Type", "X-Admin-Token"]`
+- **SQLite production warning** — startup logs a warning when SQLite is detected so operators know to switch to PostgreSQL before deploying to Railway
+- **Axios timeout** — both `api` and `adminApi` clients now have a 30-second timeout, preventing hung requests from blocking the UI indefinitely
+
+### Copy & UX
+
+- **Home subheadline** — updated to "Surfaced, summarised, and scored by AI · reviewed by humans"
+- **Sentiment badge** — `capitalize` applied; `cursor-help` + `title` tooltip explaining AI assessment
+- **Momentum badge** — `cursor-help` + tooltip explaining trending signal
+- **Report an error link** — mailto link at the bottom of every ArticleDetail page pre-fills subject and article URL
+- **AIDisclosure** — compact label renamed from "AI-Assisted Summary" to "AI-Assisted Content" for consistency with the expanded view
+
+### Bug Fixes
+
+- **Security — password bypass removed** — a code path allowed the plain `ADMIN_PASSWORD` env var to bypass bcrypt hash verification. Removed.
+- **Security — exception detail leak** — `delete_source` endpoint was re-raising raw exception messages to the client. Now logs internally and returns a generic 500 message.
+- **Admin login — English error messages** — all Turkish error strings replaced with English equivalents
+- **Newsletter — fake success removed** — the signup form was calling `setSubmitted(true)` without a backend request, showing "You're on the list!" falsely. Replaced with an honest coming-soon notice.
+- **Progress messages** — `emit("Scraping tamamlandı!")` Turkish string replaced with English
+
 ### Editorial & Trust
 
 - **Policy pages** — About, Editorial Standards, AI Use Policy, Privacy Policy, Terms of Use, Advertising Policy, Corrections Policy
