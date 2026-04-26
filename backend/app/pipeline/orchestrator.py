@@ -312,10 +312,23 @@ def _flag_featured(db: Session) -> None:
 async def run_scrape_pipeline(source_slug: str = "all") -> dict:
     """Entry point called by scheduler or admin endpoint."""
     from app.ai import progress
+    from app.models.pipeline_run import PipelineRun
 
     db = SessionLocal()
+    pipeline_run: PipelineRun | None = None
     try:
         progress.start()
+
+        pipeline_run = PipelineRun(
+            started_at=datetime.utcnow(),
+            status="running",
+            source_slug=source_slug,
+        )
+        db.add(pipeline_run)
+        db.flush()
+        progress.set_run_id(pipeline_run.id)
+        db.commit()
+
         _seed_sources(db)
 
         query = db.query(Source).filter(Source.is_active.is_(True))
@@ -350,11 +363,28 @@ async def run_scrape_pipeline(source_slug: str = "all") -> dict:
         processed = await _ai_process_pending(db)
 
         _flag_featured(db)
+
+        if pipeline_run is not None:
+            pipeline_run.status = "success"
+            pipeline_run.completed_at = datetime.utcnow()
+            pipeline_run.total_found = total_found
+            pipeline_run.total_new = total_new
+            pipeline_run.total_ai_processed = processed
+            db.commit()
+
         progress.finish()
 
         return {"sources_scraped": len(sources), "found": total_found, "new": total_new, "ai_processed": processed}
     except Exception as exc:
         db.rollback()
+        if pipeline_run is not None:
+            try:
+                pipeline_run.status = "failed"
+                pipeline_run.completed_at = datetime.utcnow()
+                pipeline_run.error_message = str(exc)
+                db.commit()
+            except Exception:
+                db.rollback()
         progress.emit(f"Error: {exc}", kind="error")
         progress.finish()
         raise

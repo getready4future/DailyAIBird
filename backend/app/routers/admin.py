@@ -22,6 +22,7 @@ from app.models.article import Article
 from app.models.admin_user import AdminUser
 from app.models.daily_digest import DailyDigest
 from app.models.scrape_run import ScrapeRun
+from app.models.pipeline_run import PipelineRun
 from app.models.source import Source
 from app.schemas.article import ArticleAdminOut, ApproveRequest, RejectRequest
 from app.schemas.digest import DigestOut
@@ -808,6 +809,82 @@ def get_scrape_runs(
             "status": r.status,
             "articles_found": r.articles_found,
             "articles_new": r.articles_new,
+            "error_message": r.error_message,
+        }
+        for r in runs
+    ]
+
+
+# ── Pipeline Runs (persistent log) ───────────────────────────────────────────
+
+@router.get("/pipeline-runs/active", dependencies=[Depends(_check_token)])
+def get_active_pipeline_run(db: Session = Depends(get_db)):
+    """Return the currently running PipelineRun, or null if none is active."""
+    from app.ai import progress
+    if not progress.is_active():
+        return {"active": None}
+    run = (
+        db.query(PipelineRun)
+        .filter(PipelineRun.status == "running")
+        .order_by(PipelineRun.started_at.desc())
+        .first()
+    )
+    if run is None:
+        return {"active": None}
+    return {
+        "active": {
+            "id": run.id,
+            "started_at": run.started_at,
+            "source_slug": run.source_slug,
+            "status": run.status,
+        }
+    }
+
+
+@router.get("/pipeline-runs/{run_id}", dependencies=[Depends(_check_token)])
+def get_pipeline_run(run_id: int, db: Session = Depends(get_db)):
+    """Return a single PipelineRun including its events_json."""
+    run = db.query(PipelineRun).filter(PipelineRun.id == run_id).first()
+    if run is None:
+        raise HTTPException(status_code=404, detail="Pipeline run not found")
+    return {
+        "id": run.id,
+        "started_at": run.started_at,
+        "completed_at": run.completed_at,
+        "status": run.status,
+        "source_slug": run.source_slug,
+        "total_found": run.total_found,
+        "total_new": run.total_new,
+        "total_ai_processed": run.total_ai_processed,
+        "error_message": run.error_message,
+        "events": json.loads(run.events_json) if run.events_json else [],
+    }
+
+
+@router.get("/pipeline-runs", dependencies=[Depends(_check_token)])
+def list_pipeline_runs(
+    page: int = Query(1, ge=1),
+    per_page: int = Query(20, ge=1, le=100),
+    db: Session = Depends(get_db),
+):
+    """Return recent pipeline runs (without events_json — use /{id} for events)."""
+    runs = (
+        db.query(PipelineRun)
+        .order_by(PipelineRun.started_at.desc())
+        .offset((page - 1) * per_page)
+        .limit(per_page)
+        .all()
+    )
+    return [
+        {
+            "id": r.id,
+            "started_at": r.started_at,
+            "completed_at": r.completed_at,
+            "status": r.status,
+            "source_slug": r.source_slug,
+            "total_found": r.total_found,
+            "total_new": r.total_new,
+            "total_ai_processed": r.total_ai_processed,
             "error_message": r.error_message,
         }
         for r in runs
