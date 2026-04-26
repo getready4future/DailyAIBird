@@ -827,7 +827,7 @@ def update_pipeline_config(config: dict = Body(...)):
     from app.config_store import save_pipeline_config
     allowed = {"cutoff_hours", "dedup_threshold", "confidence_reject_threshold",
                 "feature_min_score", "top_featured", "scrape_concurrency", "ai_batch_size",
-                "max_articles_per_source"}
+                "max_articles_per_source", "max_articles_per_run"}
     save_pipeline_config({k: v for k, v in config.items() if k in allowed})
     from app.config_store import get_pipeline_config as _get
     return _get()

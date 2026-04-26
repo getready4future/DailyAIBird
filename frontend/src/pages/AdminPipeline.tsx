@@ -14,6 +14,7 @@ interface PipelineConfig {
   scrape_concurrency: number
   ai_batch_size: number
   max_articles_per_source: number
+  max_articles_per_run: number
 }
 
 interface PipelineStats {
@@ -122,9 +123,12 @@ function ConfigCard({ config }: { config: PipelineConfig }) {
       {/* Scraping limits */}
       <p className="mb-3 text-[10px] font-semibold tracking-widest text-brand-500 uppercase">Scraping</p>
       <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <NumInput label="Max makale / run (toplam)" value={draft.max_articles_per_run} min={1} max={2000} step={10}
+          onChange={(v) => set('max_articles_per_run', v)}
+          hint="Tek bir scrape çalışmasında AI'ya gönderilecek toplam makale limiti" />
         <NumInput label="Max makale / kaynak" value={draft.max_articles_per_source} min={1} max={200} step={1}
           onChange={(v) => set('max_articles_per_source', v)}
-          hint="Her kaynaktan en fazla kaç makale çekilir (global üst limit)" />
+          hint="Bir kaynaktan en fazla kaç makale çekilir" />
         <NumInput label="Scrape eşzamanlılık" value={draft.scrape_concurrency} min={1} max={20} step={1}
           onChange={(v) => set('scrape_concurrency', v)}
           hint="Aynı anda taranan kaynak sayısı" />

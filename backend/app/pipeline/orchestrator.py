@@ -236,11 +236,12 @@ def _deduplicate_cross_source(db: Session) -> int:
 
 async def _ai_process_pending(db: Session) -> int:
     """Process all pending_ai articles in batches. Returns count processed."""
+    run_limit = int(_cfg().get("max_articles_per_run", 200))
     pending = (
         db.query(Article)
         .filter(Article.status == "pending_ai", Article.ai_processed.is_(False))
         .order_by(Article.created_at.desc())
-        .limit(200)
+        .limit(run_limit)
         .all()
     )
 
