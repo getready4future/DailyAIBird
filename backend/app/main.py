@@ -55,60 +55,56 @@ def _seed_admin_user() -> None:
         db.close()
 
 
-DEFAULT_SOURCE_SLUGS = [
-    # Aggregator
-    "google-news-ai",
-    # AI Lab blogs
-    "openai-news", "anthropic-news", "deepmind-blog", "google-ai-blog",
-    "meta-ai-blog", "microsoft-ai-blog", "huggingface-blog",
-    # Tech news
-    "techcrunch-ai", "verge-ai", "venturebeat-ai", "wired-ai",
-    "mit-tech-review-ai", "ars-technica-ai",
-    # Community
-    "hackernews-ai", "reddit-ml", "reddit-artificial",
-    # Research
-    "arxiv-cs-ai", "arxiv-cs-lg",
-    # Policy & Safety
-    "fli-news", "ai-safety-newsletter", "stanford-hai",
-]
-
-
 def _seed_sources() -> None:
-    """Ensure every DEFAULT_SOURCE_SLUGS entry exists in the DB (idempotent)."""
+    """Ensure every entry in sources_config.SOURCES exists in the DB (idempotent).
+
+    Single source of truth: backend/app/scrapers/sources_config.py — the same
+    list the orchestrator iterates over at scrape time. Adds missing rows on
+    startup; existing rows keep their admin-edited fields (is_active, etc.)
+    untouched. Updates name / url / feed_url / scraper_type / category for
+    rows whose static config drifted (idempotent on rerun).
+    """
+    import json as _json
+    from datetime import datetime
     from app.database import SessionLocal
     from app.models.source import Source
-    from app.scrapers.source_catalog import CATALOG
-    from datetime import datetime
+    from app.scrapers.sources_config import SOURCES
 
     db = SessionLocal()
     try:
-        catalog_map = {s["slug"]: s for s in CATALOG}
-        existing_slugs = {row[0] for row in db.query(Source.slug).all()}
+        existing = {s.slug: s for s in db.query(Source).all()}
         added = 0
-        for slug in DEFAULT_SOURCE_SLUGS:
-            if slug in existing_slugs:
+        updated = 0
+        for cfg in SOURCES:
+            slug = cfg["slug"]
+            row = existing.get(slug)
+            if row is None:
+                db.add(Source(
+                    name=cfg["name"],
+                    slug=slug,
+                    url=cfg["url"],
+                    feed_url=cfg.get("feed_url"),
+                    scraper_type=cfg["scraper_type"],
+                    category=cfg["category"],
+                    is_active=cfg.get("is_active", True),
+                    scrape_config=_json.dumps(cfg.get("scrape_config") or {}),
+                    created_at=datetime.utcnow(),
+                ))
+                added += 1
                 continue
-            entry = catalog_map.get(slug)
-            if not entry:
-                logger.warning("Default source slug '%s' not found in catalog — skipping", slug)
-                continue
-            db.add(Source(
-                name=entry["name"],
-                slug=entry["slug"],
-                url=entry["url"],
-                feed_url=entry.get("feed_url"),
-                scraper_type=entry["scraper_type"],
-                category=entry["category"],
-                is_active=True,
-                created_at=datetime.utcnow(),
-            ))
-            existing_slugs.add(slug)
-            added += 1
-        if added:
+            # Drift refresh — only the static config fields, never is_active or admin overrides
+            changed = False
+            for field in ("name", "url", "feed_url", "scraper_type", "category"):
+                if getattr(row, field, None) != cfg.get(field):
+                    setattr(row, field, cfg.get(field))
+                    changed = True
+            if changed:
+                updated += 1
+        if added or updated:
             db.commit()
-            logger.info("Seeded %d missing default sources", added)
+            logger.info("Sources seeded: +%d new, %d refreshed", added, updated)
         else:
-            logger.info("All default sources already present (%d total)", len(existing_slugs))
+            logger.info("All %d sources already present and current", len(existing))
     except Exception as exc:
         logger.error("Source seeding failed: %s", exc)
         db.rollback()
