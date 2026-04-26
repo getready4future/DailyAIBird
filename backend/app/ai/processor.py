@@ -22,6 +22,7 @@ from datetime import datetime
 from sqlalchemy.orm import Session
 
 from app.ai.client import call_claude
+from app.ai.prompt_registry import pick_prompt, record_use
 from app.ai.prompts import QUALITY_CHECK_PROMPT, REWRITE_PROMPT, POLISH_PROMPT, ENRICH_PROMPT
 from app.models.article import Article
 
@@ -94,11 +95,16 @@ def _parse_json(text: str) -> dict:
     return obj
 
 
-def _call_with_json_retry(prompt: str, max_tokens: int, temperature: float, label: str) -> dict:
-    """One LLM call, with one automatic retry if JSON parsing fails."""
+def _call_with_json_retry(
+    prompt: str, max_tokens: int, temperature: float, label: str,
+) -> tuple[dict, bool]:
+    """One LLM call, with one automatic retry if JSON parsing fails.
+
+    Returns (parsed_dict, retried_due_to_json_error).
+    """
     raw = call_claude(prompt, max_tokens=max_tokens, temperature=temperature)
     try:
-        return _parse_json(raw)
+        return _parse_json(raw), False
     except Exception as exc:
         logger.warning("%s: JSON parse failed (%s) — retrying", label, exc)
         retry_prompt = (
@@ -107,7 +113,7 @@ def _call_with_json_retry(prompt: str, max_tokens: int, temperature: float, labe
               "Reply ONLY with the JSON object — no markdown fences, no preamble, no text after."
         )
         raw2 = call_claude(retry_prompt, max_tokens=max_tokens, temperature=temperature)
-        return _parse_json(raw2)
+        return _parse_json(raw2), True
 
 
 def _word_count(text: str) -> int:
@@ -156,32 +162,38 @@ def _verify_numeric_claims(body: str, source: str) -> list[str]:
 
 # ── Call A: Quality Gate ──────────────────────────────────────────────────────
 
-def _run_quality_gate(article: Article, source_name: str, content: str) -> dict:
-    prompt = _get_prompt("quality_check", QUALITY_CHECK_PROMPT).format(
+def _run_quality_gate(article: Article, source_name: str, content: str) -> tuple[dict, int | None, bool]:
+    """Returns (result, prompt_version_id, json_retry_happened)."""
+    template, version_id = pick_prompt("quality_check", article.id, QUALITY_CHECK_PROMPT)
+    prompt = template.format(
         title=article.title,
         source_name=source_name,
         content=content,
     )
-    return _call_with_json_retry(prompt, max_tokens=600, temperature=TEMP_QUALITY, label="Call A")
+    result, retried = _call_with_json_retry(prompt, max_tokens=600, temperature=TEMP_QUALITY, label="Call A")
+    return result, version_id, retried
 
 
 # ── Call B1: Faithful Rewrite ─────────────────────────────────────────────────
 
 def _run_rewrite(article: Article, source_name: str, content: str, why_it_matters: str,
-                 context_prompt: str | None) -> dict:
+                 context_prompt: str | None) -> tuple[dict, int | None, bool]:
+    """Returns (result, prompt_version_id, json_retry_happened)."""
+    template, version_id = pick_prompt("rewrite", article.id, REWRITE_PROMPT)
     extra = f"\n\nSource-specific guidance: {context_prompt}" if context_prompt else ""
-    prompt = _get_prompt("rewrite", REWRITE_PROMPT).format(
+    prompt = template.format(
         title=article.title,
         source_name=source_name,
         content=content,
         why_it_matters=why_it_matters,
     ) + extra
 
-    result = _call_with_json_retry(prompt, max_tokens=1500, temperature=TEMP_REWRITE, label="Call B1")
+    result, retried1 = _call_with_json_retry(prompt, max_tokens=1500, temperature=TEMP_REWRITE, label="Call B1")
 
     # Length validator — one retry if out of range
     body = result.get("body", "") or ""
     wc = _word_count(body)
+    retried2 = False
     if not (BODY_MIN_WORDS <= wc <= BODY_MAX_WORDS):
         logger.warning("Call B1: body is %d words (target %d-%d) — retrying", wc, BODY_MIN_WORDS, BODY_MAX_WORDS)
         length_prompt = (
@@ -190,34 +202,39 @@ def _run_rewrite(article: Article, source_name: str, content: str, why_it_matter
               f"{BODY_MIN_WORDS}-{BODY_MAX_WORDS} words. Rewrite the body to fit. "
               "Keep all facts unchanged. Return only the JSON object."
         )
-        result = _call_with_json_retry(length_prompt, max_tokens=1500, temperature=TEMP_REWRITE, label="Call B1 (length retry)")
+        result, retried2 = _call_with_json_retry(length_prompt, max_tokens=1500, temperature=TEMP_REWRITE, label="Call B1 (length retry)")
 
-    return result
+    return result, version_id, (retried1 or retried2)
 
 
 # ── Call B2: Voice & Accessibility Polish ─────────────────────────────────────
 
-def _run_polish(rewrite_result: dict) -> dict:
-    prompt = _get_prompt("polish", POLISH_PROMPT).format(
+def _run_polish(article_id: int, rewrite_result: dict) -> tuple[dict, int | None, bool, bool]:
+    """Returns (result, prompt_version_id, json_retry_happened, banned_word_retry_happened)."""
+    template, version_id = pick_prompt("polish", article_id, POLISH_PROMPT)
+    prompt = template.format(
         headline=rewrite_result.get("headline", ""),
         body=rewrite_result.get("body", ""),
         lead=rewrite_result.get("lead", ""),
     )
-    result = _call_with_json_retry(prompt, max_tokens=1500, temperature=TEMP_POLISH, label="Call B2")
+    result, retried_json1 = _call_with_json_retry(prompt, max_tokens=1500, temperature=TEMP_POLISH, label="Call B2")
 
     # Banned-word post-filter — one retry if hits
     body = result.get("body", "") or ""
     hits = _find_banned(body)
+    banned_retry = False
+    retried_json2 = False
     if hits:
         logger.warning("Call B2: banned words present (%s) — retrying", ", ".join(hits))
+        banned_retry = True
         retry_prompt = (
             prompt
             + f"\n\nYour previous output contained these forbidden words: {', '.join(hits)}. "
               "Rewrite removing every instance. Keep all facts unchanged. Return only the JSON object."
         )
-        result = _call_with_json_retry(retry_prompt, max_tokens=1500, temperature=TEMP_POLISH, label="Call B2 (banned-word retry)")
+        result, retried_json2 = _call_with_json_retry(retry_prompt, max_tokens=1500, temperature=TEMP_POLISH, label="Call B2 (banned-word retry)")
 
-    return result
+    return result, version_id, (retried_json1 or retried_json2), banned_retry
 
 
 # ── Main orchestrator ─────────────────────────────────────────────────────────
@@ -254,8 +271,10 @@ def process_article(article: Article, source_name: str, db: Session, *, context_
     # ── Call A ───────────────────────────────────────────────────────────────
     progress.emit(article.title, kind="call_a_start", source=source_name, url=article.url)
     t_a = datetime.utcnow()
+    qa_version_id: int | None = None
+    qa_json_retry = False
     try:
-        result_a = _run_quality_gate(article, source_name, content)
+        result_a, qa_version_id, qa_json_retry = _run_quality_gate(article, source_name, content)
     except Exception as exc:
         error_msg = f"AI Call A failed: {exc}"
         logger.error("Call A failed for article %d (%s): %s", article.id, article.title, exc)
@@ -302,6 +321,8 @@ def process_article(article: Article, source_name: str, db: Session, *, context_
         article.ai_processed = True
         article.ai_processed_at = datetime.utcnow()
         db.commit()
+        # A/B telemetry: Call A used, didn't pass downstream → no pass increment
+        record_use(qa_version_id, passed=False, json_retry=qa_json_retry)
         progress.emit(
             article.title, kind="skipped", url=article.url,
             reason=f"decision={decision} · confidence {int(confidence)}/5",
@@ -329,6 +350,11 @@ def process_article(article: Article, source_name: str, db: Session, *, context_
 
     rewrite_result: dict = {}
     polish_result: dict = {}
+    rewrite_version_id: int | None = None
+    polish_version_id: int | None = None
+    rewrite_json_retry = False
+    polish_json_retry = False
+    polish_banned_retry = False
     try:
         if legacy_override_active:
             # Single-call legacy path
@@ -337,13 +363,17 @@ def process_article(article: Article, source_name: str, db: Session, *, context_
                 title=article.title, source_name=source_name,
                 content=content, why_it_matters=why_it_matters,
             ) + extra
-            polish_result = _call_with_json_retry(
+            polish_result, _retried = _call_with_json_retry(
                 legacy_prompt, max_tokens=1500, temperature=TEMP_REWRITE, label="Call B (legacy)",
             )
             rewrite_result = polish_result  # for impact_score below
         else:
-            rewrite_result = _run_rewrite(article, source_name, content, why_it_matters, context_prompt)
-            polish_result = _run_polish(rewrite_result)
+            rewrite_result, rewrite_version_id, rewrite_json_retry = _run_rewrite(
+                article, source_name, content, why_it_matters, context_prompt,
+            )
+            polish_result, polish_version_id, polish_json_retry, polish_banned_retry = _run_polish(
+                article.id, rewrite_result,
+            )
     except Exception as exc:
         logger.error("Call B failed for article %d (%s): %s", article.id, article.title, exc)
         progress.emit(
@@ -379,6 +409,11 @@ def process_article(article: Article, source_name: str, db: Session, *, context_
         article.ai_processed_at = datetime.utcnow()
         article.rejection_reason = f"Numeric claims not in source: {', '.join(missing[:5])}"
         db.commit()
+        # A/B telemetry: numeric-fail counts as use but not as pass
+        record_use(qa_version_id, passed=False, json_retry=qa_json_retry)
+        record_use(rewrite_version_id, passed=False, json_retry=rewrite_json_retry)
+        record_use(polish_version_id, passed=False, json_retry=polish_json_retry,
+                   banned_word_retry=polish_banned_retry)
         progress.emit(
             article.title, kind="skipped", url=article.url,
             reason=f"Numeric verification failed ({len(missing)} unverified)",
@@ -392,6 +427,12 @@ def process_article(article: Article, source_name: str, db: Session, *, context_
     article.ai_processed = True
     article.ai_processed_at = datetime.utcnow()
     db.commit()
+
+    # A/B telemetry for the three prompts used on this article (#12)
+    record_use(qa_version_id, passed=True, json_retry=qa_json_retry)
+    record_use(rewrite_version_id, passed=True, json_retry=rewrite_json_retry)
+    record_use(polish_version_id, passed=True, json_retry=polish_json_retry,
+               banned_word_retry=polish_banned_retry)
 
     elapsed_b = round((datetime.utcnow() - t_b).total_seconds(), 1)
     elapsed_total = round((datetime.utcnow() - t_a).total_seconds(), 1)

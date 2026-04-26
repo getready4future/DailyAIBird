@@ -15,8 +15,18 @@ HEADERS = {
     "User-Agent": "Mozilla/5.0 (compatible; DailyAIBird/1.0; +https://github.com/getready4future/DailyAIBird)",
 }
 MAX_CONTENT_CHARS = 4000
+
+# Retry / resilience knobs
+_RETRY_ATTEMPTS = 3
+_RETRY_BACKOFF_BASE = 1.0  # seconds — multiplied by 2**attempt
+
 # After N consecutive 429s from a domain, stop fetching pages from it
 _PAGE_FETCH_MAX_CONSECUTIVE_429 = 3
+
+# Image quality thresholds (#7)
+_IMAGE_MIN_BYTES = 5_000          # < 5KB → likely placeholder/favicon
+_IMAGE_BAD_EXT = (".svg", ".ico", ".gif")
+_IMAGE_BAD_PATH_HINTS = ("favicon", "1x1", "pixel", "tracker", "spacer")
 
 
 def _extract_text(html: str) -> str:
@@ -41,10 +51,8 @@ def _extract_og_image(html: str) -> str | None:
 
 def _image_from_feed_entry(entry) -> str | None:
     """Try to get image URL from RSS feed metadata."""
-    # media:thumbnail
     if hasattr(entry, "media_thumbnail") and entry.media_thumbnail:
         return entry.media_thumbnail[0].get("url")
-    # media:content with medium=image
     if hasattr(entry, "media_content") and entry.media_content:
         for mc in entry.media_content:
             if mc.get("medium") == "image" and mc.get("url"):
@@ -53,7 +61,6 @@ def _image_from_feed_entry(entry) -> str | None:
                 mc["url"].lower().endswith(ext) for ext in (".jpg", ".jpeg", ".png", ".webp")
             ):
                 return mc["url"]
-    # enclosure (podcasts / some RSS feeds)
     if hasattr(entry, "enclosures") and entry.enclosures:
         for enc in entry.enclosures:
             if enc.get("type", "").startswith("image/"):
@@ -69,6 +76,73 @@ def _parse_date(entry) -> datetime | None:
     return None
 
 
+def _bad_image_url(url: str | None) -> bool:
+    """Cheap rejection for clearly non-article images (#7 first pass)."""
+    if not url:
+        return True
+    lower = url.lower()
+    if any(lower.endswith(ext) for ext in _IMAGE_BAD_EXT):
+        return True
+    if any(hint in lower for hint in _IMAGE_BAD_PATH_HINTS):
+        return True
+    return False
+
+
+async def _validate_image(client: httpx.AsyncClient, url: str) -> bool:
+    """HEAD request — confirm content-type is image/* and reasonable size (#7)."""
+    if _bad_image_url(url):
+        return False
+    try:
+        r = await client.head(url, timeout=8, follow_redirects=True)
+    except Exception:
+        return False
+    if r.status_code >= 400:
+        return False
+    ctype = r.headers.get("content-type", "").lower()
+    if not ctype.startswith("image/") or "svg" in ctype:
+        return False
+    clen = r.headers.get("content-length")
+    if clen and clen.isdigit() and int(clen) < _IMAGE_MIN_BYTES:
+        return False
+    return True
+
+
+async def _retrying_get(client: httpx.AsyncClient, url: str, **kwargs) -> httpx.Response | None:
+    """GET with bounded exponential backoff on transient errors (#1)."""
+    for attempt in range(_RETRY_ATTEMPTS):
+        try:
+            resp = await client.get(url, **kwargs)
+            # 5xx → retry; 429 surfaces to caller (it manages per-domain budget)
+            if 500 <= resp.status_code < 600 and attempt < _RETRY_ATTEMPTS - 1:
+                await asyncio.sleep(_RETRY_BACKOFF_BASE * (2 ** attempt))
+                continue
+            return resp
+        except (httpx.TransportError, httpx.TimeoutException) as exc:
+            if attempt < _RETRY_ATTEMPTS - 1:
+                await asyncio.sleep(_RETRY_BACKOFF_BASE * (2 ** attempt))
+                continue
+            logger.debug("Page fetch giving up on %s after %d tries: %s", url, attempt + 1, exc)
+            return None
+    return None
+
+
+def _parse_feed_with_caching(feed_url: str, etag: str | None, last_modified: str | None):
+    """Wrapper around feedparser.parse that uses ETag/If-Modified-Since (#1).
+
+    Returns (feed, new_etag, new_modified, status). status==304 means cache hit.
+    """
+    kwargs: dict = {}
+    if etag:
+        kwargs["etag"] = etag
+    if last_modified:
+        kwargs["modified"] = last_modified
+    feed = feedparser.parse(feed_url, **kwargs)
+    new_etag = getattr(feed, "etag", None) or etag
+    new_mod = getattr(feed, "modified", None) or last_modified
+    status = getattr(feed, "status", 0)
+    return feed, new_etag, new_mod, status
+
+
 class RssScraper(BaseScraper):
     async def fetch_articles(self) -> list[ScrapedArticle]:
         feed_url = self.source_config.get("feed_url")
@@ -77,14 +151,41 @@ class RssScraper(BaseScraper):
 
         fetch_full_text = (self.source_config.get("scrape_config") or {}).get("fetch_full_text", False)
 
-        try:
-            feed = feedparser.parse(feed_url)
-        except Exception as exc:
-            logger.error("RSS parse error for %s: %s", feed_url, exc)
+        # Pull current ETag/Last-Modified from DB so we get 304s when unchanged (#1)
+        cached_etag = self.source_config.get("etag")
+        cached_modified = self.source_config.get("last_modified")
+        slug = self.source_config.get("slug")
+
+        # Wrap the synchronous feedparser call in a retry loop
+        feed = None
+        new_etag = cached_etag
+        new_modified = cached_modified
+        status = 0
+        for attempt in range(_RETRY_ATTEMPTS):
+            try:
+                feed, new_etag, new_modified, status = _parse_feed_with_caching(
+                    feed_url, cached_etag, cached_modified,
+                )
+                break
+            except Exception as exc:
+                if attempt < _RETRY_ATTEMPTS - 1:
+                    await asyncio.sleep(_RETRY_BACKOFF_BASE * (2 ** attempt))
+                    continue
+                logger.error("RSS parse error for %s after %d tries: %s", feed_url, attempt + 1, exc)
+                self._save_etag(slug, cached_etag, cached_modified)
+                return []
+
+        # Persist ETag/Last-Modified for next run (best-effort)
+        if new_etag != cached_etag or new_modified != cached_modified:
+            self._save_etag(slug, new_etag, new_modified)
+
+        if status == 304:
+            logger.info("RSS feed unchanged (304) for %s", feed_url)
+            return []
+        if feed is None:
             return []
 
         articles: list[ScrapedArticle] = []
-        # Per-domain consecutive-429 counter — stop page fetching after too many
         domain_429: dict[str, int] = {}
 
         async with httpx.AsyncClient(headers=HEADERS, timeout=15, follow_redirects=True) as client:
@@ -94,7 +195,6 @@ class RssScraper(BaseScraper):
                 if not url or not title:
                     continue
 
-                # Raw content seed from feed
                 raw_content = ""
                 if hasattr(entry, "summary"):
                     raw_content = BeautifulSoup(entry.summary, "lxml").get_text(strip=True)
@@ -103,28 +203,33 @@ class RssScraper(BaseScraper):
 
                 image_url = _image_from_feed_entry(entry)
 
-                # Fetch full page (for text and/or OG image) unless domain is rate-limiting us
                 domain = urlparse(url).netloc
                 if (fetch_full_text or not image_url) and domain_429.get(domain, 0) < _PAGE_FETCH_MAX_CONSECUTIVE_429:
-                    try:
-                        await asyncio.sleep(0.15)  # polite delay between page requests
-                        resp = await client.get(url)
-                        if resp.status_code == 429:
-                            domain_429[domain] = domain_429.get(domain, 0) + 1
-                            if domain_429[domain] >= _PAGE_FETCH_MAX_CONSECUTIVE_429:
-                                logger.info("RSS page fetch: %s rate-limiting — skipping remaining page fetches for this domain", domain)
-                        else:
-                            domain_429[domain] = 0  # reset on success
-                            resp.raise_for_status()
-                            html = resp.text
-                            if fetch_full_text:
-                                raw_content = _extract_text(html)
-                            if not image_url:
-                                image_url = _extract_og_image(html)
-                    except httpx.HTTPStatusError as exc:
-                        logger.debug("Page fetch HTTP error for %s: %s", url, exc)
-                    except Exception as exc:
-                        logger.debug("Page fetch failed for %s: %s", url, exc)
+                    await asyncio.sleep(0.15)
+                    resp = await _retrying_get(client, url)
+                    if resp is None:
+                        pass
+                    elif resp.status_code == 429:
+                        domain_429[domain] = domain_429.get(domain, 0) + 1
+                        if domain_429[domain] >= _PAGE_FETCH_MAX_CONSECUTIVE_429:
+                            logger.info("RSS page fetch: %s rate-limiting — skipping remaining for this domain", domain)
+                    elif resp.status_code < 400:
+                        domain_429[domain] = 0
+                        html = resp.text
+                        if fetch_full_text:
+                            raw_content = _extract_text(html)
+                        if not image_url:
+                            image_url = _extract_og_image(html)
+
+                # Image quality filter (#7) — drop clearly bad URLs without a HEAD
+                if image_url and _bad_image_url(image_url):
+                    image_url = None
+
+                # If we have a candidate image, validate it (HEAD)
+                if image_url:
+                    ok = await _validate_image(client, image_url)
+                    if not ok:
+                        image_url = None
 
                 raw_content = raw_content[:MAX_CONTENT_CHARS]
 
@@ -139,3 +244,22 @@ class RssScraper(BaseScraper):
                 ))
 
         return articles
+
+    @staticmethod
+    def _save_etag(slug: str | None, etag: str | None, modified: str | None) -> None:
+        if not slug:
+            return
+        try:
+            from app.database import SessionLocal
+            from app.models.source import Source
+            db = SessionLocal()
+            try:
+                src = db.query(Source).filter(Source.slug == slug).first()
+                if src is not None:
+                    src.etag = etag
+                    src.last_modified = modified
+                    db.commit()
+            finally:
+                db.close()
+        except Exception as exc:
+            logger.debug("Failed to persist ETag for %s: %s", slug, exc)

@@ -46,6 +46,8 @@ class Article(Base):
     ai_processed: Mapped[bool] = mapped_column(Boolean, default=False)
     ai_processed_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
     ai_attempt_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    next_retry_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)  # exp backoff (#10)
+    title_tokens: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # cached normalized tokens (#6)
     is_featured: Mapped[bool] = mapped_column(Boolean, default=False)
     approved_by: Mapped[Optional[str]] = mapped_column(String(200))
     approved_at: Mapped[Optional[datetime]] = mapped_column(DateTime)

@@ -72,6 +72,8 @@ async def _scrape_source(source_id: int) -> tuple[int, int]:
             "feed_url": source.feed_url,
             "scraper_type": source.scraper_type,
             "scrape_config": json.loads(source.scrape_config or "{}"),
+            "etag": source.etag,
+            "last_modified": source.last_modified,
         }
         scraper = get_scraper(cfg)
 
@@ -196,7 +198,14 @@ async def _scrape_source(source_id: int) -> tuple[int, int]:
 
 
 def _deduplicate_cross_source(db: Session) -> int:
-    """Reject pending_ai articles that duplicate stories already seen (cross-source). Returns count rejected."""
+    """Reject pending_ai articles that duplicate stories already seen (cross-source).
+
+    Two-pass match (#6):
+      1. Cheap lexical match (existing SequenceMatcher) at the user's threshold.
+      2. Semantic token-cosine fallback at 0.78 — catches reordered/paraphrased headlines.
+    """
+    from app.pipeline.similarity import to_vector, cosine
+
     pending = (
         db.query(Article)
         .filter(Article.status == "pending_ai", Article.ai_processed.is_(False))
@@ -209,16 +218,27 @@ def _deduplicate_cross_source(db: Session) -> int:
     cfg = _cfg()
     recent_cutoff = datetime.utcnow() - timedelta(hours=cfg.get("cutoff_hours", 48))
     dedup_threshold = cfg.get("dedup_threshold", 0.65)
+    semantic_threshold = cfg.get("semantic_dedup_threshold", 0.78)
+
     existing_titles: list[str] = [
         row[0] for row in db.query(Article.title).filter(
             Article.status.in_(["published", "pending_human"]),
             Article.created_at >= recent_cutoff,
         ).all()
     ]
+    # Pre-compute vectors for the existing pool so we don't re-tokenize per pending article
+    existing_vectors = [to_vector(t) for t in existing_titles]
 
     rejected = 0
     for article in pending:
-        if any(titles_are_similar(article.title, t, threshold=dedup_threshold) for t in existing_titles):
+        is_dup = any(titles_are_similar(article.title, t, threshold=dedup_threshold) for t in existing_titles)
+        if not is_dup:
+            article_vec = to_vector(article.title)
+            for ev in existing_vectors:
+                if cosine(article_vec, ev) >= semantic_threshold:
+                    is_dup = True
+                    break
+        if is_dup:
             article.status = "rejected_ai"
             article.rejection_reason = "Cross-source duplicate"
             article.ai_processed = True
@@ -226,6 +246,7 @@ def _deduplicate_cross_source(db: Session) -> int:
             rejected += 1
         else:
             existing_titles.append(article.title)
+            existing_vectors.append(to_vector(article.title))
 
     if rejected:
         db.commit()
@@ -234,16 +255,79 @@ def _deduplicate_cross_source(db: Session) -> int:
     return rejected
 
 
-async def _ai_process_pending(db: Session) -> int:
-    """Process all pending_ai articles in batches. Returns count processed."""
-    run_limit = int(_cfg().get("max_articles_per_run", 200))
-    pending = (
+def _select_pending_round_robin(db: Session, run_limit: int) -> list[Article]:
+    """Round-robin selection across sources so a fast source can't starve slow ones (#9).
+
+    Also respects the retry queue: skips articles whose next_retry_at is in the future (#10).
+    """
+    now = datetime.utcnow()
+    candidates = (
         db.query(Article)
-        .filter(Article.status == "pending_ai", Article.ai_processed.is_(False))
+        .filter(
+            Article.status == "pending_ai",
+            Article.ai_processed.is_(False),
+            (Article.next_retry_at.is_(None)) | (Article.next_retry_at <= now),
+        )
         .order_by(Article.created_at.desc())
-        .limit(run_limit)
         .all()
     )
+    if not candidates:
+        return []
+    if len(candidates) <= run_limit:
+        return candidates
+
+    # Bucket per source
+    buckets: dict[int, list[Article]] = {}
+    for art in candidates:
+        buckets.setdefault(art.source_id, []).append(art)
+
+    # Round-robin pop until run_limit reached
+    selected: list[Article] = []
+    source_ids = list(buckets.keys())
+    while len(selected) < run_limit and any(buckets.get(s) for s in source_ids):
+        for sid in source_ids:
+            if buckets.get(sid):
+                selected.append(buckets[sid].pop(0))
+                if len(selected) >= run_limit:
+                    break
+    return selected
+
+
+async def _process_one_in_thread(article_id: int, source_name: str, context_prompt: str | None) -> bool:
+    """Run process_article in a thread with its own DB session (parallel-safe)."""
+    def _runner() -> bool:
+        from app.database import SessionLocal
+        db_local = SessionLocal()
+        try:
+            art = db_local.query(Article).filter(Article.id == article_id).first()
+            if art is None:
+                return False
+            process_article(art, source_name, db_local, context_prompt=context_prompt)
+            # If still pending_ai (transient failure), schedule exponential-backoff retry (#10)
+            if art.status == "pending_ai" and art.ai_attempt_count and art.ai_attempt_count > 0:
+                hours = min(48, 2 ** art.ai_attempt_count)
+                art.next_retry_at = datetime.utcnow() + timedelta(hours=hours)
+                db_local.commit()
+            return True
+        except Exception as exc:
+            db_local.rollback()
+            logger.error("AI processing failed for article %d: %s", article_id, exc)
+            return False
+        finally:
+            db_local.close()
+    return await asyncio.to_thread(_runner)
+
+
+async def _ai_process_pending(db: Session) -> int:
+    """Process pending_ai articles with parallelism + round-robin source selection.
+
+    - #5: Inside a batch, articles run concurrently (Semaphore-bounded).
+    - #9: Articles are selected round-robin per source so fast sources can't
+          dominate the run budget.
+    - #10: Articles whose next_retry_at is in the future are skipped.
+    """
+    run_limit = int(_cfg().get("max_articles_per_run", 200))
+    pending = _select_pending_round_robin(db, run_limit)
 
     if not pending:
         return 0
@@ -251,37 +335,42 @@ async def _ai_process_pending(db: Session) -> int:
     from app.ai import progress
     total = len(pending)
     batch_size = _cfg().get("ai_batch_size", settings.AI_BATCH_SIZE)
+    concurrency = int(_cfg().get("ai_concurrency", 3))
     processed = 0
 
     progress.emit(f"Starting AI analysis for {total} articles", kind="ai_batch_start", total=total)
+
+    semaphore = asyncio.Semaphore(concurrency)
 
     for i in range(0, total, batch_size):
         if progress.is_cancelled():
             progress.emit("AI analysis cancelled by user", kind="info")
             break
         batch = pending[i: i + batch_size]
-        for j, article in enumerate(batch):
+
+        async def _gated(article: Article, idx: int) -> bool:
             if progress.is_cancelled():
-                break
-            source_name = article.source.name if article.source else "Unknown"
-            context_prompt = article.source.context_prompt if article.source else None
-            current = i + j + 1
-            progress.emit(
-                article.title,
-                kind="ai_queue",
-                current=current,
-                total=total,
-                source=source_name,
-                url=article.url,
-            )
-            try:
-                process_article(article, source_name, db, context_prompt=context_prompt)
-                processed += 1
-            except Exception as exc:
-                db.rollback()
-                logger.error("AI processing failed for article %d: %s", article.id, exc)
-            await asyncio.sleep(0.5)
-        await asyncio.sleep(1)
+                return False
+            async with semaphore:
+                source_name = article.source.name if article.source else "Unknown"
+                context_prompt = article.source.context_prompt if article.source else None
+                progress.emit(
+                    article.title,
+                    kind="ai_queue",
+                    current=idx + 1,
+                    total=total,
+                    source=source_name,
+                    url=article.url,
+                )
+                ok = await _process_one_in_thread(article.id, source_name, context_prompt)
+                return ok
+
+        results = await asyncio.gather(
+            *[_gated(art, i + j) for j, art in enumerate(batch)],
+            return_exceptions=True,
+        )
+        processed += sum(1 for r in results if r is True)
+        await asyncio.sleep(0.5)
 
     return processed
 
@@ -315,15 +404,18 @@ def _flag_featured(db: Session) -> None:
         relevance = a.relevance_score or 0.0
         impact = a.impact_score or 0.0
         curiosity = a.curiosity_score or 0.0
-        momentum = min(a.momentum_score or 1, 5) / 5.0
-        # Recency decay: 1.0 at now, 0.85 at 24h boundary, linear.
+        # Recency decay: 1.0 at now, 0.85 at 24h boundary, linear
         if a.published_at:
             age_hours = max(0.0, (now - a.published_at).total_seconds() / 3600.0)
             recency = 1.0 - (min(age_hours, 24.0) / 24.0) * 0.15
         else:
             recency = 0.85
-        base = relevance * 0.35 + impact * 0.25 + curiosity * 0.25 + momentum * 0.15
-        return base * recency
+        # #8: Cluster size as multiplicative trend boost. Single source = 1.0,
+        # 5+ sources = 1.4. Replaces the previous 0.15-weighted additive term.
+        cluster_size = max(1, a.momentum_score or 1)
+        cluster_boost = 1.0 + min(cluster_size - 1, 4) * 0.1
+        base = relevance * 0.40 + impact * 0.30 + curiosity * 0.30
+        return base * recency * cluster_boost
 
     scored = [(a, score(a)) for a in candidates]
     scored = [(a, s) for (a, s) in scored if s >= feature_min]
@@ -423,6 +515,16 @@ async def run_scrape_pipeline(source_slug: str = "all", run_id: int | None = Non
         if not cancelled:
             _flag_featured(db)
 
+            # Refresh source health + auto-disable chronic failures (#2)
+            try:
+                from app.pipeline.source_health import recompute_source_health
+                disabled = recompute_source_health(db)
+                if disabled:
+                    progress.emit(f"{disabled} source(s) auto-disabled due to chronic failures",
+                                  kind="info")
+            except Exception as exc:
+                logger.warning("Source health recompute failed: %s", exc)
+
         if pipeline_run is not None:
             in_tok, out_tok = progress.get_usage(run_id)
             pipeline_run.status = "cancelled" if cancelled else "success"
@@ -432,6 +534,20 @@ async def run_scrape_pipeline(source_slug: str = "all", run_id: int | None = Non
             pipeline_run.total_ai_processed = processed
             pipeline_run.input_tokens = in_tok
             pipeline_run.output_tokens = out_tok
+
+            # Run-to-run regression alert (#3)
+            if not cancelled:
+                try:
+                    from app.pipeline.source_health import detect_run_anomaly
+                    anomaly = detect_run_anomaly(db, pipeline_run)
+                    if anomaly:
+                        progress.emit(anomaly, kind="anomaly")
+                        # Stash on the run row so the admin UI can flag it red
+                        existing = pipeline_run.error_message or ""
+                        pipeline_run.error_message = (existing + "\n" if existing else "") + anomaly
+                except Exception as exc:
+                    logger.warning("Anomaly detection failed: %s", exc)
+
             db.commit()
 
         progress.finish(run_id)
@@ -465,12 +581,65 @@ async def run_scrape_pipeline(source_slug: str = "all", run_id: int | None = Non
 
 
 def run_digest_pipeline() -> None:
-    """Trigger digest generation for today (called by scheduler)."""
+    """Trigger digest generation for today (called by scheduler).
+
+    Wrapped in a PipelineRun + progress lifecycle (#11) so digest runs are
+    visible in the admin monitor alongside scrape runs, and crashes leave
+    a recorded failure rather than silent void.
+    """
     from datetime import date
     from app.ai.digest_generator import generate_digest
+    from app.ai import progress
+    from app.models.pipeline_run import PipelineRun
 
     db = SessionLocal()
+    pipeline_run: PipelineRun | None = None
     try:
-        generate_digest(date.today(), db)
+        pipeline_run = PipelineRun(
+            started_at=datetime.utcnow(),
+            status="running",
+            source_slug="digest",
+        )
+        db.add(pipeline_run)
+        db.commit()
+        db.refresh(pipeline_run)
+        progress.start(pipeline_run.id)
+        progress.emit(f"Digest pipeline started (run #{pipeline_run.id})", kind="info")
+
+        digest = generate_digest(date.today(), db)
+        if digest is None:
+            progress.emit("Digest generation produced no output (no published articles?)", kind="error")
+        else:
+            progress.emit(
+                f"Digest generated: {digest.headline[:80] if digest.headline else digest.id}",
+                kind="publish",
+            )
+
+        in_tok, out_tok = progress.get_usage(pipeline_run.id)
+        pipeline_run.status = "success" if digest is not None else "failed"
+        pipeline_run.completed_at = datetime.utcnow()
+        pipeline_run.input_tokens = in_tok
+        pipeline_run.output_tokens = out_tok
+        if digest is None:
+            pipeline_run.error_message = "No digest produced"
+        db.commit()
+        progress.finish(pipeline_run.id)
+    except Exception as exc:
+        db.rollback()
+        if pipeline_run is not None:
+            try:
+                in_tok, out_tok = progress.get_usage(pipeline_run.id)
+                pipeline_run.status = "failed"
+                pipeline_run.completed_at = datetime.utcnow()
+                pipeline_run.error_message = str(exc)
+                pipeline_run.input_tokens = in_tok
+                pipeline_run.output_tokens = out_tok
+                db.commit()
+            except Exception:
+                db.rollback()
+        progress.emit(f"Digest error: {exc}", kind="error")
+        if pipeline_run is not None:
+            progress.finish(pipeline_run.id)
+        raise
     finally:
         db.close()

@@ -23,6 +23,7 @@ from app.models.admin_user import AdminUser
 from app.models.daily_digest import DailyDigest
 from app.models.scrape_run import ScrapeRun
 from app.models.pipeline_run import PipelineRun
+from app.models.prompt_version import PromptVersion
 from app.models.source import Source
 from app.schemas.article import ArticleAdminOut, ApproveRequest, RejectRequest
 from app.schemas.digest import DigestOut
@@ -1048,6 +1049,99 @@ def list_pipeline_runs(
     ]
 
 
+# ── Drift monitoring + source health (#2, #4) ────────────────────────────────
+
+@router.get("/pipeline/drift", dependencies=[Depends(_check_token)])
+def get_drift_metrics(days: int = Query(14, ge=1, le=90), db: Session = Depends(get_db)):
+    """Daily aggregates over the last N days for drift detection (#4)."""
+    from collections import defaultdict
+    cutoff = datetime.utcnow() - __import__("datetime").timedelta(days=days)
+    runs = (
+        db.query(PipelineRun)
+        .filter(PipelineRun.started_at >= cutoff, PipelineRun.status == "success")
+        .order_by(PipelineRun.started_at.asc())
+        .all()
+    )
+    daily: dict[str, dict] = defaultdict(lambda: {
+        "runs": 0, "found": 0, "ai_processed": 0, "input_tokens": 0, "output_tokens": 0,
+        "scored_count": 0, "passed_count": 0,
+        "confidence_sum": 0.0, "relevance_sum": 0.0, "curiosity_sum": 0.0,
+        "banned_retry_count": 0, "json_retry_count": 0,
+    })
+    for r in runs:
+        day = r.started_at.date().isoformat()
+        d = daily[day]
+        d["runs"] += 1
+        d["found"] += r.total_found or 0
+        d["ai_processed"] += r.total_ai_processed or 0
+        d["input_tokens"] += r.input_tokens or 0
+        d["output_tokens"] += r.output_tokens or 0
+        if r.events_json:
+            try:
+                events = json.loads(r.events_json)
+            except Exception:
+                continue
+            for ev in events:
+                kind = ev.get("kind")
+                if kind == "scored":
+                    d["scored_count"] += 1
+                    if ev.get("decision") == "publish":
+                        d["passed_count"] += 1
+                    d["confidence_sum"] += float(ev.get("confidence") or 0)
+                    d["relevance_sum"] += float(ev.get("relevance") or 0)
+                    d["curiosity_sum"] += float(ev.get("curiosity") or 0)
+
+    out = []
+    for day in sorted(daily.keys()):
+        d = daily[day]
+        scored = d["scored_count"] or 1
+        out.append({
+            "day": day,
+            "runs": d["runs"],
+            "found": d["found"],
+            "ai_processed": d["ai_processed"],
+            "tokens": d["input_tokens"] + d["output_tokens"],
+            "pass_rate": round((d["passed_count"] / scored) * 100) if d["scored_count"] else None,
+            "mean_confidence": round(d["confidence_sum"] / scored, 2) if d["scored_count"] else None,
+            "mean_relevance": round(d["relevance_sum"] / scored, 2) if d["scored_count"] else None,
+            "mean_curiosity": round(d["curiosity_sum"] / scored, 2) if d["scored_count"] else None,
+        })
+    return {"days": days, "data": out}
+
+
+@router.get("/sources/health", dependencies=[Depends(_check_token)])
+def get_sources_health(db: Session = Depends(get_db)):
+    """Per-source health snapshot for the admin UI (#2)."""
+    rows = db.query(Source).order_by(Source.health_score.asc()).all()
+    return [
+        {
+            "id": s.id,
+            "slug": s.slug,
+            "name": s.name,
+            "is_active": s.is_active,
+            "health_score": s.health_score,
+            "consecutive_failures": s.consecutive_failures,
+            "publish_rate_30d": s.publish_rate_30d,
+            "auto_disabled_at": s.auto_disabled_at,
+            "last_scraped_at": s.last_scraped_at,
+        }
+        for s in rows
+    ]
+
+
+@router.post("/sources/{source_id}/reactivate", dependencies=[Depends(_check_token)])
+def reactivate_source(source_id: int, db: Session = Depends(get_db)):
+    """Manually re-enable an auto-disabled source after fixing the underlying issue."""
+    src = db.query(Source).filter(Source.id == source_id).first()
+    if src is None:
+        raise HTTPException(status_code=404, detail="Source not found")
+    src.is_active = True
+    src.consecutive_failures = 0
+    src.auto_disabled_at = None
+    db.commit()
+    return {"id": src.id, "is_active": True}
+
+
 # ── Pipeline Config ───────────────────────────────────────────────────────────
 
 @router.get("/pipeline/config", dependencies=[Depends(_check_token)])
@@ -1105,3 +1199,119 @@ def reset_pipeline_prompt(key: str):
     from app.config_store import reset_prompt
     reset_prompt(key)
     return {"ok": True, "message": "Prompt reset to default"}
+
+
+# ── Prompt versions: A/B testing harness (#12) ───────────────────────────────
+
+class PromptVersionCreate(BaseModel):
+    key: str          # "quality_check" | "rewrite" | "polish"
+    label: str
+    text: str
+    notes: str | None = None
+
+
+@router.get("/pipeline/prompt-versions", dependencies=[Depends(_check_token)])
+def list_prompt_versions(key: str | None = Query(None), db: Session = Depends(get_db)):
+    """List prompt versions, optionally filtered by key."""
+    q = db.query(PromptVersion).order_by(PromptVersion.key.asc(), PromptVersion.created_at.desc())
+    if key:
+        q = q.filter(PromptVersion.key == key)
+    rows = q.all()
+    return [
+        {
+            "id": r.id, "key": r.key, "label": r.label,
+            "is_active": r.is_active, "is_experiment": r.is_experiment,
+            "notes": r.notes, "created_at": r.created_at,
+            "use_count": r.use_count, "pass_count": r.pass_count,
+            "banned_word_retry_count": r.banned_word_retry_count,
+            "json_retry_count": r.json_retry_count,
+            "total_input_tokens": r.total_input_tokens,
+            "total_output_tokens": r.total_output_tokens,
+            "pass_rate": (round(r.pass_count / r.use_count * 100) if r.use_count else None),
+        }
+        for r in rows
+    ]
+
+
+@router.get("/pipeline/prompt-versions/{version_id}", dependencies=[Depends(_check_token)])
+def get_prompt_version(version_id: int, db: Session = Depends(get_db)):
+    row = db.query(PromptVersion).filter(PromptVersion.id == version_id).first()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Version not found")
+    return {
+        "id": row.id, "key": row.key, "label": row.label, "text": row.text,
+        "is_active": row.is_active, "is_experiment": row.is_experiment,
+        "notes": row.notes, "created_at": row.created_at,
+        "use_count": row.use_count, "pass_count": row.pass_count,
+        "banned_word_retry_count": row.banned_word_retry_count,
+        "json_retry_count": row.json_retry_count,
+        "total_input_tokens": row.total_input_tokens,
+        "total_output_tokens": row.total_output_tokens,
+    }
+
+
+@router.post("/pipeline/prompt-versions", dependencies=[Depends(_check_token)])
+def create_prompt_version(body: PromptVersionCreate, db: Session = Depends(get_db)):
+    if body.key not in ("quality_check", "rewrite", "polish"):
+        raise HTTPException(status_code=400, detail="Invalid prompt key")
+    v = PromptVersion(key=body.key, label=body.label, text=body.text, notes=body.notes)
+    db.add(v)
+    db.commit()
+    db.refresh(v)
+    return {"id": v.id, "key": v.key, "label": v.label}
+
+
+@router.post("/pipeline/prompt-versions/{version_id}/activate", dependencies=[Depends(_check_token)])
+def activate_prompt_version(version_id: int, db: Session = Depends(get_db)):
+    """Make this version the production prompt for its key (deactivates others)."""
+    target = db.query(PromptVersion).filter(PromptVersion.id == version_id).first()
+    if target is None:
+        raise HTTPException(status_code=404, detail="Version not found")
+    db.query(PromptVersion).filter(PromptVersion.key == target.key).update(
+        {PromptVersion.is_active: False, PromptVersion.is_experiment: False},
+        synchronize_session=False,
+    )
+    target.is_active = True
+    db.commit()
+    return {"id": target.id, "key": target.key, "is_active": True}
+
+
+@router.post("/pipeline/prompt-versions/{version_id}/experiment", dependencies=[Depends(_check_token)])
+def start_experiment(version_id: int, db: Session = Depends(get_db)):
+    """Mark a version as the A/B experiment alongside the active baseline.
+
+    During the experiment, processor.py picks active vs experiment per-article
+    based on article-id parity (50/50 split).
+    """
+    target = db.query(PromptVersion).filter(PromptVersion.id == version_id).first()
+    if target is None:
+        raise HTTPException(status_code=404, detail="Version not found")
+    # Only one experiment per key at a time
+    db.query(PromptVersion).filter(
+        PromptVersion.key == target.key, PromptVersion.id != target.id,
+    ).update({PromptVersion.is_experiment: False}, synchronize_session=False)
+    target.is_experiment = True
+    db.commit()
+    return {"id": target.id, "key": target.key, "is_experiment": True}
+
+
+@router.post("/pipeline/prompt-versions/{version_id}/stop-experiment", dependencies=[Depends(_check_token)])
+def stop_experiment(version_id: int, db: Session = Depends(get_db)):
+    target = db.query(PromptVersion).filter(PromptVersion.id == version_id).first()
+    if target is None:
+        raise HTTPException(status_code=404, detail="Version not found")
+    target.is_experiment = False
+    db.commit()
+    return {"id": target.id, "is_experiment": False}
+
+
+@router.delete("/pipeline/prompt-versions/{version_id}", dependencies=[Depends(_check_token)])
+def delete_prompt_version(version_id: int, db: Session = Depends(get_db)):
+    target = db.query(PromptVersion).filter(PromptVersion.id == version_id).first()
+    if target is None:
+        raise HTTPException(status_code=404, detail="Version not found")
+    if target.is_active:
+        raise HTTPException(status_code=400, detail="Cannot delete the active version")
+    db.delete(target)
+    db.commit()
+    return {"ok": True}
