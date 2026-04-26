@@ -61,7 +61,7 @@ function HeroCard({ article }: { article: Article }) {
       {article.image_url ? (
         <img
           src={article.image_url}
-          alt=""
+          alt={article.title}
           className="absolute inset-0 h-full w-full object-cover transition duration-700 group-hover:scale-105"
           loading="lazy"
           onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none' }}
@@ -120,7 +120,7 @@ function LargeCard({ article }: { article: Article }) {
         {article.image_url ? (
           <img
             src={article.image_url}
-            alt=""
+            alt={article.title}
             className="h-52 w-full object-cover transition duration-500 group-hover:scale-105"
             loading="lazy"
             onError={(e) => {
@@ -179,7 +179,7 @@ function DefaultCard({ article }: { article: Article }) {
         {article.image_url ? (
           <img
             src={article.image_url}
-            alt=""
+            alt={article.title}
             className="h-40 w-full object-cover transition duration-500 group-hover:scale-105"
             loading="lazy"
             onError={(e) => {

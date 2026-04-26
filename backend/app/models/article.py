@@ -61,4 +61,5 @@ class Article(Base):
         Index("ix_articles_topic_published", "topic", "published_at"),
         Index("ix_articles_relevance_published", "relevance_score", "published_at"),
         Index("ix_articles_status", "status"),
+        Index("ix_articles_source_id", "source_id"),
     )

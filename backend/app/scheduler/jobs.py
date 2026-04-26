@@ -16,9 +16,10 @@ async def _run_scrape():
     await run_scrape_pipeline("all")
 
 
-def _run_digest():
+async def _run_digest():
+    import asyncio
     from app.pipeline.orchestrator import run_digest_pipeline
-    run_digest_pipeline()
+    await asyncio.to_thread(run_digest_pipeline)
 
 
 def _run_cleanup():

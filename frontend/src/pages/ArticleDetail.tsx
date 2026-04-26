@@ -1,4 +1,5 @@
 import { useParams, Link } from 'react-router-dom'
+import { Helmet } from 'react-helmet-async'
 import { format, formatDistanceToNow } from 'date-fns'
 import { useArticle } from '../hooks/useArticles'
 import TopicBadge from '../components/ui/TopicBadge'
@@ -14,11 +15,54 @@ export default function ArticleDetail() {
   if (error || !article) return <p className="py-10 text-center text-red-500">Article not found.</p>
 
   const paragraphs = article.summary?.split('\n').filter(Boolean) ?? []
+  const pageTitle = `${article.title} — Daily AI Bird`
+  const description = paragraphs[0]?.slice(0, 160) ?? article.title
+  const canonical = `https://dailyaibird.com/articles/${article.id}`
+
+  const newsArticleJsonLd = {
+    '@context': 'https://schema.org',
+    '@type': 'NewsArticle',
+    headline: article.title,
+    description,
+    image: article.image_url ? [article.image_url] : [],
+    datePublished: article.published_at,
+    dateModified: article.published_at,
+    author: article.author ? [{ '@type': 'Person', name: article.author }] : [{ '@type': 'Organization', name: article.source.name }],
+    publisher: { '@type': 'Organization', name: 'Daily AI Bird', url: 'https://dailyaibird.com' },
+    url: canonical,
+    mainEntityOfPage: canonical,
+  }
+
+  const breadcrumbJsonLd = {
+    '@context': 'https://schema.org',
+    '@type': 'BreadcrumbList',
+    itemListElement: [
+      { '@type': 'ListItem', position: 1, name: 'Home', item: 'https://dailyaibird.com' },
+      ...(article.topic ? [{ '@type': 'ListItem', position: 2, name: article.topic.replace('_', ' '), item: `https://dailyaibird.com/?topic=${article.topic}` }] : []),
+      { '@type': 'ListItem', position: article.topic ? 3 : 2, name: article.title, item: canonical },
+    ],
+  }
 
   return (
     <div className="mx-auto max-w-2xl">
+      <Helmet>
+        <title>{pageTitle}</title>
+        <meta name="description" content={description} />
+        <link rel="canonical" href={canonical} />
+        <meta property="og:title" content={pageTitle} />
+        <meta property="og:description" content={description} />
+        <meta property="og:url" content={canonical} />
+        <meta property="og:type" content="article" />
+        {article.image_url && <meta property="og:image" content={article.image_url} />}
+        <meta name="twitter:card" content="summary_large_image" />
+        <meta name="twitter:title" content={pageTitle} />
+        <meta name="twitter:description" content={description} />
+        {article.image_url && <meta name="twitter:image" content={article.image_url} />}
+        <script type="application/ld+json">{JSON.stringify(newsArticleJsonLd)}</script>
+        <script type="application/ld+json">{JSON.stringify(breadcrumbJsonLd)}</script>
+      </Helmet>
       {/* Breadcrumb */}
-      <nav className="mb-6 flex flex-wrap items-center gap-1 text-xs text-gray-400">
+      <nav className="mb-6 flex flex-wrap items-center gap-1 text-sm text-gray-400">
         <Link to="/" className="hover:text-gray-600 transition-colors">Home</Link>
         <span>›</span>
         {article.topic && (
@@ -37,7 +81,7 @@ export default function ArticleDetail() {
         <div className="mb-8 overflow-hidden rounded-2xl shadow-lg">
           <img
             src={article.image_url}
-            alt=""
+            alt={article.title}
             className="w-full object-cover max-h-[420px]"
             onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none' }}
           />
@@ -48,16 +92,22 @@ export default function ArticleDetail() {
       <div className="mb-4 flex flex-wrap gap-2">
         {article.topic && <TopicBadge topic={article.topic} />}
         {article.momentum_score >= 3 && (
-          <span className="rounded-full bg-rose-100 px-2.5 py-0.5 text-xs font-bold text-rose-600">
+          <span
+            title={`${article.momentum_score} sources are covering this story — it's trending`}
+            className="rounded-full bg-rose-100 px-2.5 py-0.5 text-xs font-bold text-rose-600 cursor-help"
+          >
             🔥 {article.momentum_score} sources covering this
           </span>
         )}
         {article.sentiment && (
-          <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${
-            article.sentiment === 'positive' ? 'bg-green-100 text-green-700'
-            : article.sentiment === 'negative' ? 'bg-red-100 text-red-700'
-            : 'bg-gray-100 text-gray-500'
-          }`}>
+          <span
+            title={`Sentiment: ${article.sentiment} — assessed by AI based on article tone`}
+            className={`rounded-full px-2.5 py-0.5 text-xs font-medium capitalize cursor-help ${
+              article.sentiment === 'positive' ? 'bg-green-100 text-green-700'
+              : article.sentiment === 'negative' ? 'bg-red-100 text-red-700'
+              : 'bg-gray-100 text-gray-500'
+            }`}
+          >
             {article.sentiment}
           </span>
         )}
@@ -169,10 +219,18 @@ export default function ArticleDetail() {
         <NewsletterSignup />
       </div>
 
-      {/* Back link */}
-      <Link to="/" className="inline-flex items-center gap-1.5 text-sm text-gray-400 hover:text-gray-700 transition">
-        ← Back to feed
-      </Link>
+      {/* Back + report row */}
+      <div className="flex items-center justify-between">
+        <Link to="/" className="inline-flex items-center gap-1.5 text-sm text-gray-400 hover:text-gray-700 transition">
+          ← Back to feed
+        </Link>
+        <a
+          href={`mailto:corrections@dailyaibird.com?subject=Error report: ${encodeURIComponent(article.title)}&body=Article URL: ${encodeURIComponent(article.url)}%0A%0AError description:%0A`}
+          className="text-xs text-gray-400 hover:text-gray-600 transition underline underline-offset-2"
+        >
+          Report an error
+        </a>
+      </div>
     </div>
   )
 }

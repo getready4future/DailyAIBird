@@ -156,6 +156,12 @@ async def lifespan(app: FastAPI):
     # Ensure columns added after initial schema exist (safe on repeated restarts)
     _ensure_columns()
 
+    if "sqlite" in settings.DATABASE_URL:
+        logger.warning(
+            "SQLite detected as the database backend. "
+            "SQLite data is lost on Railway/container restarts — use PostgreSQL in production."
+        )
+
     _seed_admin_user()
     _seed_sources()
 
@@ -185,9 +191,9 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"] if _allow_all else _cors_origins,
     allow_credentials=False if _allow_all else True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Content-Type", "Authorization", "X-Admin-Token", "X-Requested-With"],
-    expose_headers=["*"],
+    expose_headers=["Content-Type", "X-Admin-Token"],
 )
 
 # Public routes

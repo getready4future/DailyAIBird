@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom'
+import { Helmet } from 'react-helmet-async'
 import { useTopics } from '../hooks/useTopics'
 import TopicBadge, { topicLabel } from '../components/ui/TopicBadge'
 import Spinner from '../components/ui/Spinner'
@@ -10,6 +11,11 @@ export default function Topics() {
 
   return (
     <div>
+      <Helmet>
+        <title>AI News Topics — Daily AI Bird</title>
+        <meta name="description" content="Browse AI news by topic — research, products, policy, safety, agents, and more." />
+        <link rel="canonical" href="https://dailyaibird.com/topics" />
+      </Helmet>
       <h1 className="mb-6 text-2xl font-bold text-gray-900">Topics</h1>
       <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
         {(topics || []).map(({ topic, count }) => (

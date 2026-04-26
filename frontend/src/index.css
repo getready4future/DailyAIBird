@@ -5,5 +5,10 @@
 @layer base {
   body {
     @apply text-gray-900 antialiased;
+    font-feature-settings: "kern" 1, "liga" 1;
+  }
+
+  p {
+    @apply leading-relaxed;
   }
 }

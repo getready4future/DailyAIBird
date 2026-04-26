@@ -15,7 +15,7 @@ export default function AIDisclosure({ compact = false }: Props) {
           <svg className="h-3 w-3" viewBox="0 0 20 20" fill="currentColor">
             <path d="M10 2a8 8 0 100 16A8 8 0 0010 2zm1 11H9v-2h2v2zm0-4H9V7h2v2z"/>
           </svg>
-          AI-Assisted Summary
+          AI-Assisted Content
         </span>
         <Link to="/ai-use-policy" className="text-gray-400 hover:text-gray-600 transition-colors">
           What does this mean?

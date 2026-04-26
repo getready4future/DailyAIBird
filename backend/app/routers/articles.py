@@ -2,7 +2,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.database import get_db
 from app.models.article import Article
@@ -20,7 +20,7 @@ def list_articles(
     per_page: int = Query(20, ge=1, le=100),
     db: Session = Depends(get_db),
 ):
-    q = db.query(Article).filter(Article.status == "published")
+    q = db.query(Article).options(joinedload(Article.source)).filter(Article.status == "published")
 
     if topic:
         q = q.filter(Article.topic == topic)
@@ -59,6 +59,7 @@ def list_articles(
 def get_article(article_id: int, db: Session = Depends(get_db)):
     article = (
         db.query(Article)
+        .options(joinedload(Article.source))
         .filter(Article.id == article_id, Article.status == "published")
         .first()
     )

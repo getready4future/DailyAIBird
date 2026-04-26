@@ -14,7 +14,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, Sec
 from fastapi.responses import StreamingResponse
 from fastapi.security import APIKeyHeader
 from pydantic import BaseModel
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.config import settings
 from app.database import get_db
@@ -605,6 +605,7 @@ def get_moderation_queue(
     )
     return (
         db.query(Article)
+        .options(joinedload(Article.source))
         .filter(Article.status == status)
         .order_by(order)
         .offset((page - 1) * per_page)
@@ -791,6 +792,7 @@ def get_scrape_runs(
 ):
     runs = (
         db.query(ScrapeRun)
+        .options(joinedload(ScrapeRun.source))
         .order_by(ScrapeRun.started_at.desc())
         .offset((page - 1) * per_page)
         .limit(per_page)

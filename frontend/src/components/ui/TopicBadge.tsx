@@ -1,9 +1,9 @@
 const TOPIC_COLORS: Record<string, string> = {
   research:    'bg-indigo-100 text-indigo-800',
   products:    'bg-green-100 text-green-800',
-  policy:      'bg-orange-100 text-orange-800',
-  business:    'bg-yellow-100 text-yellow-800',
-  safety:      'bg-red-100 text-red-800',
+  policy:      'bg-orange-100 text-orange-900',
+  business:    'bg-amber-100 text-amber-900',
+  safety:      'bg-red-100 text-red-900',
   open_source: 'bg-teal-100 text-teal-800',
   tools:       'bg-blue-100 text-blue-800',
   agents:      'bg-purple-100 text-purple-800',
