@@ -8,13 +8,40 @@ interface PipelineRunSummary {
   id: number
   started_at: string
   completed_at: string | null
-  status: 'running' | 'success' | 'failed'
+  status: 'running' | 'success' | 'failed' | 'cancelled'
   source_slug: string
   total_found: number
   total_new: number
   total_ai_processed: number
+  input_tokens?: number
+  output_tokens?: number
   error_message: string | null
 }
+
+interface RunStats {
+  found: number
+  analyzed: number
+  published: number
+  skipped: number
+  errors: number
+  clustered_extra: number
+  pass_rate: number | null
+  timing: { total_seconds?: number; scrape_seconds?: number; ai_seconds?: number }
+}
+
+interface PipelineRunDetail extends PipelineRunSummary {
+  events: PipelineEvent[]
+  stats: RunStats
+}
+
+const FILTER_GROUPS: Array<{ key: string; label: string; kinds: string[] }> = [
+  { key: 'all',       label: 'Tümü',       kinds: [] },
+  { key: 'found',     label: 'Bulunan',    kinds: ['found', 'fetch_done', 'fetch_start', 'source_start', 'source_done'] },
+  { key: 'analyzed',  label: 'Analiz',     kinds: ['analyzing', 'call_a_start', 'scored', 'rewriting'] },
+  { key: 'published', label: 'Yayınlanan', kinds: ['publish'] },
+  { key: 'skipped',   label: 'Atlanan',    kinds: ['skipped', 'skip_old', 'skip_url', 'skip_title'] },
+  { key: 'errors',    label: 'Hata',       kinds: ['error'] },
+]
 
 interface PipelineEvent {
   message: string
@@ -431,17 +458,22 @@ export default function AdminMonitor() {
   const [error, setError]             = useState<string | null>(null)
   const [autoScroll, setAutoScroll]   = useState(true)
   const [recentRuns, setRecentRuns]   = useState<PipelineRunSummary[]>([])
-  const [selectedRun, setSelectedRun] = useState<PipelineRunSummary | null>(null)
-  const [historyEvents, setHistoryEvents] = useState<PipelineEvent[]>([])
+  const [selectedRun, setSelectedRun] = useState<PipelineRunDetail | null>(null)
   const [historyLoading, setHistoryLoading] = useState(false)
+  const [currentRunId, setCurrentRunId] = useState<number | null>(null)
+  const [liveTokens, setLiveTokens]   = useState<{ input: number; output: number }>({ input: 0, output: 0 })
+  const [filter, setFilter]           = useState<string>('all')
+  const [search, setSearch]           = useState<string>('')
 
-  // Track received event count for tab-reconnect (so we don't re-fetch already-seen events)
   const eventIndexRef = useRef(0)
   const runningRef    = useRef(false)
   const doneRef       = useRef(false)
   const bottomRef     = useRef<HTMLDivElement>(null)
   const logRef        = useRef<HTMLDivElement>(null)
   const abortRef      = useRef<AbortController | null>(null)
+  const currentRunIdRef = useRef<number | null>(null)
+
+  useEffect(() => { currentRunIdRef.current = currentRunId }, [currentRunId])
 
   const { data: sources = [] } = useQuery<AdminSource[]>({
     queryKey: ['admin-sources-monitor'],
@@ -451,39 +483,14 @@ export default function AdminMonitor() {
     },
   })
 
-  // On mount: check if a pipeline run is already active; if not, load recent runs
-  useEffect(() => {
-    ;(async () => {
-      try {
-        const { data } = await adminApi.get('/admin/pipeline-runs/active')
-        if (data.active) {
-          // A run is in progress — reconnect SSE from the beginning
-          setRunning(true)
-          runningRef.current = true
-          setTimeout(() => connect(0), 200)
-        } else {
-          const { data: runs } = await adminApi.get('/admin/pipeline-runs?per_page=10')
-          setRecentRuns(runs)
-        }
-      } catch { /* ignore — backend may not have the table yet */ }
-    })()
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const refreshRecent = useCallback(async () => {
+    try {
+      const { data } = await adminApi.get('/admin/pipeline-runs?per_page=10')
+      setRecentRuns(data)
+    } catch { /* ignore */ }
   }, [])
 
-  async function loadRunHistory(run: PipelineRunSummary) {
-    setSelectedRun(run)
-    setHistoryLoading(true)
-    try {
-      const { data } = await adminApi.get(`/admin/pipeline-runs/${run.id}`)
-      setHistoryEvents(data.events ?? [])
-    } catch {
-      setHistoryEvents([])
-    } finally {
-      setHistoryLoading(false)
-    }
-  }
-
-  const connect = useCallback((since: number) => {
+  const connect = useCallback((runId: number, since: number) => {
     abortRef.current?.abort()
     const controller = new AbortController()
     abortRef.current = controller
@@ -493,7 +500,7 @@ export default function AdminMonitor() {
       try {
         const token = getAdminToken()
         const resp = await fetch(
-          `${BASE_URL}/api/v1/admin/scrape-events?since=${since}`,
+          `${BASE_URL}/api/v1/admin/scrape-events?run_id=${runId}&since=${since}`,
           { headers: { Authorization: `Bearer ${token}` }, signal: controller.signal }
         )
         if (!resp.ok || !resp.body) { setConnected(false); return }
@@ -517,14 +524,12 @@ export default function AdminMonitor() {
               setEvents((prev) => [...prev, event])
               eventIndexRef.current += 1
               if (event.kind === 'done') {
-                setDone(true)
-                doneRef.current = true
+                setDone(true); doneRef.current = true
                 setConnected(false)
-                setRunning(false)
-                runningRef.current = false
+                setRunning(false); runningRef.current = false
                 return
               }
-            } catch { /* ignore malformed chunks */ }
+            } catch { /* malformed chunk — skip */ }
           }
         }
         setConnected(false)
@@ -534,48 +539,99 @@ export default function AdminMonitor() {
     })()
   }, [])
 
+  // On mount: pick up any active run, otherwise load recent runs
+  useEffect(() => {
+    ;(async () => {
+      try {
+        const { data } = await adminApi.get('/admin/pipeline-runs/active')
+        const active = data.active_run ?? (Array.isArray(data.active) ? data.active[0] : null)
+        if (active) {
+          setRunning(true); runningRef.current = true
+          setCurrentRunId(active.id)
+          setTimeout(() => connect(active.id, 0), 200)
+        } else {
+          await refreshRecent()
+        }
+      } catch { /* backend may not have the table yet */ }
+    })()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   // Reconnect on tab visibility change
   useEffect(() => {
     function onVisibilityChange() {
       if (document.hidden) return
       if (!runningRef.current || doneRef.current) return
-      // Tab became visible again — reconnect from last known event index
-      connect(eventIndexRef.current)
+      const rid = currentRunIdRef.current
+      if (rid !== null) connect(rid, eventIndexRef.current)
     }
     document.addEventListener('visibilitychange', onVisibilityChange)
     return () => document.removeEventListener('visibilitychange', onVisibilityChange)
   }, [connect])
 
+  // Poll token usage every 5s while a live run is active (cost display)
+  useEffect(() => {
+    if (!running || currentRunId === null) return
+    const id = window.setInterval(async () => {
+      try {
+        const { data } = await adminApi.get(`/admin/pipeline-runs/${currentRunId}`)
+        setLiveTokens({ input: data.input_tokens ?? 0, output: data.output_tokens ?? 0 })
+      } catch { /* ignore */ }
+    }, 5000)
+    return () => window.clearInterval(id)
+  }, [running, currentRunId])
+
   async function handleRun() {
     setError(null)
     setSelectedRun(null)
-    setHistoryEvents([])
+    setLiveTokens({ input: 0, output: 0 })
     try {
-      await adminApi.post(`/admin/trigger-scrape?source_slug=${selectedSource}`)
+      const { data } = await adminApi.post(`/admin/trigger-scrape?source_slug=${selectedSource}`)
+      const newRunId = data.run_id as number | null
+      if (newRunId == null) {
+        setError('Run ID alınamadı — sunucu eski sürümde olabilir')
+        return
+      }
       setEvents([])
       eventIndexRef.current = 0
-      setDone(false)
-      doneRef.current = false
-      setRunning(true)
-      runningRef.current = true
+      setDone(false); doneRef.current = false
+      setRunning(true); runningRef.current = true
+      setCurrentRunId(newRunId)
       setAutoScroll(true)
-      setTimeout(() => connect(0), 400)
+      setTimeout(() => connect(newRunId, 0), 400)
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail
       setError(msg ?? 'Pipeline başlatılamadı')
     }
   }
 
+  async function handleCancel() {
+    if (currentRunId === null) return
+    try {
+      await adminApi.post(`/admin/pipeline-runs/${currentRunId}/cancel`)
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail
+      setError(msg ?? 'İptal başarısız')
+    }
+  }
+
+  async function loadRunHistory(run: PipelineRunSummary) {
+    setHistoryLoading(true)
+    try {
+      const { data } = await adminApi.get(`/admin/pipeline-runs/${run.id}`)
+      setSelectedRun(data)
+    } catch {
+      setSelectedRun({ ...run, events: [], stats: { found: 0, analyzed: 0, published: 0, skipped: 0, errors: 0, clustered_extra: 0, pass_rate: null, timing: {} } })
+    } finally {
+      setHistoryLoading(false)
+    }
+  }
+
   // After a run finishes, refresh recent runs list
   useEffect(() => {
     if (!done) return
-    ;(async () => {
-      try {
-        const { data } = await adminApi.get('/admin/pipeline-runs?per_page=10')
-        setRecentRuns(data)
-      } catch { /* ignore */ }
-    })()
-  }, [done])
+    refreshRecent()
+  }, [done, refreshRecent])
 
   // Auto-scroll
   useEffect(() => {
@@ -588,16 +644,77 @@ export default function AdminMonitor() {
     setAutoScroll(el.scrollHeight - el.scrollTop - el.clientHeight < 80)
   }
 
-  const foundCount     = events.filter((e) => e.kind === 'found').length
-  const analyzedCount  = events.filter((e) => e.kind === 'scored').length
-  const publishedCount = events.filter((e) => e.kind === 'publish').length
-  const skippedCount   = events.filter((e) => e.kind === 'skipped').length
-  const clusteredCount = events.filter((e) => e.kind === 'clustered')
-    .reduce((s, e) => s + ((e.cluster_size ?? 1) - 1), 0)
-  const errorCount     = events.filter((e) => e.kind === 'error').length
-  const passRate       = analyzedCount > 0 ? Math.round((publishedCount / analyzedCount) * 100) : null
+  // ── Derived: which event list is on screen, then filter+search applied ─────
+  const isHistoryView = !running && !!selectedRun
+  const baseEvents: PipelineEvent[] = isHistoryView ? (selectedRun?.events ?? []) : events
+  const filterKinds = FILTER_GROUPS.find((g) => g.key === filter)?.kinds ?? []
+  const searchLower = search.trim().toLowerCase()
+  const displayedEvents = baseEvents.filter((e) => {
+    if (filterKinds.length && !filterKinds.includes(e.kind)) return false
+    if (searchLower) {
+      const hay = `${e.message ?? ''} ${e.url ?? ''} ${e.source ?? ''}`.toLowerCase()
+      if (!hay.includes(searchLower)) return false
+    }
+    return true
+  })
+
+  // Stats: from the displayed list (so history view shows its own stats)
+  const liveStats = {
+    found: baseEvents.filter((e) => e.kind === 'found').length,
+    analyzed: baseEvents.filter((e) => e.kind === 'scored').length,
+    published: baseEvents.filter((e) => e.kind === 'publish').length,
+    skipped: baseEvents.filter((e) => e.kind === 'skipped').length,
+    errors: baseEvents.filter((e) => e.kind === 'error').length,
+    clusteredExtra: baseEvents.filter((e) => e.kind === 'clustered')
+      .reduce((s, e) => s + ((e.cluster_size ?? 1) - 1), 0),
+  }
+  const stats = isHistoryView && selectedRun?.stats
+    ? {
+        found: selectedRun.stats.found,
+        analyzed: selectedRun.stats.analyzed,
+        published: selectedRun.stats.published,
+        skipped: selectedRun.stats.skipped,
+        errors: selectedRun.stats.errors,
+        clusteredExtra: selectedRun.stats.clustered_extra,
+      }
+    : liveStats
+  const passRate = stats.analyzed > 0 ? Math.round((stats.published / stats.analyzed) * 100) : null
+
+  // Per-phase timing: history → from API; live → derive from events
+  const timing = isHistoryView ? (selectedRun?.stats.timing ?? {}) : (() => {
+    if (baseEvents.length === 0) return {}
+    const t: { total_seconds?: number; scrape_seconds?: number; ai_seconds?: number } = {}
+    const startTs = baseEvents[0].ts
+    const endTs = baseEvents[baseEvents.length - 1].ts
+    if (startTs && endTs) t.total_seconds = Math.round(endTs - startTs)
+    const firstSourceStart = baseEvents.find((e) => e.kind === 'source_start')?.ts
+    const lastSourceDone   = [...baseEvents].reverse().find((e) => e.kind === 'source_done')?.ts
+    if (firstSourceStart && lastSourceDone) t.scrape_seconds = Math.round(lastSourceDone - firstSourceStart)
+    const aiStart = baseEvents.find((e) => e.kind === 'ai_batch_start')?.ts
+    const aiEnd   = [...baseEvents].reverse().find((e) => e.kind === 'publish' || e.kind === 'done')?.ts
+    if (aiStart && aiEnd) t.ai_seconds = Math.round(aiEnd - aiStart)
+    return t
+  })()
+
+  // Token usage to display (live polled, history from API)
+  const tokenInput  = isHistoryView ? (selectedRun?.input_tokens ?? 0) : liveTokens.input
+  const tokenOutput = isHistoryView ? (selectedRun?.output_tokens ?? 0) : liveTokens.output
+  const tokenTotal  = tokenInput + tokenOutput
 
   const activeSources = sources.filter((s) => s.is_active)
+
+  // Delta vs previous run (recent runs list)
+  const recentWithDelta = recentRuns.map((r, i) => {
+    const prev = recentRuns[i + 1]
+    const deltaNew = prev ? r.total_new - prev.total_new : 0
+    return { ...r, deltaNew }
+  })
+
+  function fmtSec(s?: number) {
+    if (s === undefined || s === null) return '—'
+    if (s < 60) return `${s}s`
+    return `${Math.floor(s / 60)}dk ${s % 60}s`
+  }
 
   return (
     <div className="flex h-full flex-col -m-8">
@@ -605,23 +722,29 @@ export default function AdminMonitor() {
       <div className="flex shrink-0 items-center justify-between gap-4 border-b border-gray-800 bg-gray-950 px-6 py-4">
         <div>
           <h1 className="text-base font-bold text-white">Pipeline Monitor</h1>
-          <p className="text-xs text-gray-500">Canlı AI değerlendirme akışı</p>
+          <p className="text-xs text-gray-500">
+            {isHistoryView
+              ? `Run #${selectedRun?.id} geçmiş görüntüleme`
+              : currentRunId
+                ? `Run #${currentRunId} ${running ? 'canlı' : 'tamamlandı'}`
+                : 'Canlı AI değerlendirme akışı'}
+          </p>
         </div>
 
         <div className="flex items-center gap-3">
-          {connected && (
+          {connected && !isHistoryView && (
             <div className="flex items-center gap-1.5">
               <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-500" />
               <span className="text-xs font-semibold text-emerald-400">LIVE</span>
             </div>
           )}
-          {!connected && running && !done && (
+          {!connected && running && !done && !isHistoryView && (
             <div className="flex items-center gap-1.5">
               <span className="h-2 w-2 animate-pulse rounded-full bg-amber-500" />
               <span className="text-xs font-semibold text-amber-400">Yeniden bağlanıyor…</span>
             </div>
           )}
-          {done && (
+          {done && !isHistoryView && (
             <span className="rounded-full border border-emerald-800/50 bg-emerald-950/50 px-2 py-0.5 text-xs font-bold text-emerald-400">
               Tamamlandı
             </span>
@@ -640,13 +763,22 @@ export default function AdminMonitor() {
               <option key={s.slug} value={s.slug}>{s.name}</option>
             ))}
           </select>
-          <button
-            onClick={handleRun}
-            disabled={running && !done}
-            className="rounded-lg bg-brand-600 px-4 py-1.5 text-xs font-bold text-white transition hover:bg-brand-500 disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            {running && !done ? 'Çalışıyor…' : '▶ Başlat'}
-          </button>
+          {running && !done ? (
+            <button
+              onClick={handleCancel}
+              className="rounded-lg bg-red-700 px-4 py-1.5 text-xs font-bold text-white transition hover:bg-red-600"
+              title="Çalışan run'ı iptal et"
+            >
+              ✕ İptal
+            </button>
+          ) : (
+            <button
+              onClick={handleRun}
+              className="rounded-lg bg-brand-600 px-4 py-1.5 text-xs font-bold text-white transition hover:bg-brand-500"
+            >
+              ▶ Başlat
+            </button>
+          )}
         </div>
       </div>
 
@@ -658,18 +790,37 @@ export default function AdminMonitor() {
 
       {/* Stats bar */}
       <div className="flex shrink-0 flex-wrap items-center gap-5 border-b border-gray-800/60 bg-gray-950/80 px-6 py-2.5">
-        <StatBadge label="bulunan"   value={foundCount}     color="text-gray-300" />
-        <StatBadge label="analiz"    value={analyzedCount}  color="text-blue-400" />
-        <StatBadge label="cluster"   value={clusteredCount} color="text-amber-400" />
-        <StatBadge label="kuyruğa"   value={publishedCount} color="text-emerald-400" />
-        <StatBadge label="atlandı"   value={skippedCount}   color="text-red-400" />
-        <StatBadge label="hata"      value={errorCount}     color="text-red-500" />
+        <StatBadge label="bulunan"   value={stats.found}          color="text-gray-300" />
+        <StatBadge label="analiz"    value={stats.analyzed}       color="text-blue-400" />
+        <StatBadge label="cluster"   value={stats.clusteredExtra} color="text-amber-400" />
+        <StatBadge label="kuyruğa"   value={stats.published}      color="text-emerald-400" />
+        <StatBadge label="atlandı"   value={stats.skipped}        color="text-red-400" />
+        <StatBadge label="hata"      value={stats.errors}         color="text-red-500" />
         {passRate !== null && (
           <span className="text-xs text-gray-600">
-            geçiş oranı <span className="font-bold text-gray-400">{passRate}%</span>
+            geçiş <span className="font-bold text-gray-400">{passRate}%</span>
           </span>
         )}
-        {!autoScroll && (
+        {(timing.total_seconds || timing.scrape_seconds || timing.ai_seconds) && (
+          <span
+            className="text-[10px] text-gray-600 cursor-help"
+            title={`Toplam: ${fmtSec(timing.total_seconds)}\nScrape: ${fmtSec(timing.scrape_seconds)}\nAI: ${fmtSec(timing.ai_seconds)}`}
+          >
+            ⏱ {fmtSec(timing.total_seconds)}
+            {timing.scrape_seconds !== undefined && (
+              <span className="ml-2 text-gray-700">scrape {fmtSec(timing.scrape_seconds)}</span>
+            )}
+            {timing.ai_seconds !== undefined && (
+              <span className="ml-2 text-gray-700">ai {fmtSec(timing.ai_seconds)}</span>
+            )}
+          </span>
+        )}
+        {tokenTotal > 0 && (
+          <span className="text-[10px] text-gray-600" title={`Input: ${tokenInput.toLocaleString()}\nOutput: ${tokenOutput.toLocaleString()}`}>
+            🪙 <span className="font-bold text-gray-400">{tokenTotal.toLocaleString()}</span> token
+          </span>
+        )}
+        {!autoScroll && !isHistoryView && (
           <button
             onClick={() => { setAutoScroll(true); bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }}
             className="ml-auto text-[10px] text-brand-400 hover:text-brand-300 transition"
@@ -679,114 +830,158 @@ export default function AdminMonitor() {
         )}
       </div>
 
-      {/* Event log — live run or history viewer */}
+      {/* Filter + search row */}
+      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-gray-800/40 bg-gray-950/60 px-6 py-2">
+        <div className="flex items-center gap-1">
+          {FILTER_GROUPS.map((g) => (
+            <button
+              key={g.key}
+              onClick={() => setFilter(g.key)}
+              className={`rounded-full border px-2.5 py-0.5 text-[10px] font-medium transition ${
+                filter === g.key
+                  ? 'border-brand-700 bg-brand-900/40 text-brand-300'
+                  : 'border-gray-800 bg-gray-900/40 text-gray-500 hover:text-gray-300'
+              }`}
+            >
+              {g.label}
+            </button>
+          ))}
+        </div>
+        <input
+          type="text"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Başlık, kaynak veya URL ara…"
+          className="ml-auto w-64 rounded-lg border border-gray-800 bg-gray-900 px-3 py-1 text-[11px] text-gray-200 placeholder-gray-600 focus:border-brand-500 focus:outline-none"
+        />
+        {(filter !== 'all' || search) && (
+          <button
+            onClick={() => { setFilter('all'); setSearch('') }}
+            className="text-[10px] text-gray-500 hover:text-gray-300 transition"
+          >
+            sıfırla
+          </button>
+        )}
+        <span className="text-[10px] text-gray-700">
+          {displayedEvents.length}/{baseEvents.length} olay
+        </span>
+      </div>
+
+      {/* Event log */}
       <div ref={logRef} onScroll={handleLogScroll} className="flex-1 overflow-y-auto bg-gray-950 px-4 py-4">
         <div className="mx-auto max-w-3xl space-y-1.5">
 
-          {/* History view */}
-          {selectedRun && !running && (
-            <>
-              <div className="mb-4 flex items-center gap-3">
-                <button
-                  onClick={() => { setSelectedRun(null); setHistoryEvents([]) }}
-                  className="rounded-lg border border-gray-700 bg-gray-900 px-3 py-1 text-xs text-gray-400 hover:text-white transition"
-                >
-                  ← Geri
-                </button>
-                <div>
-                  <p className="text-xs font-semibold text-gray-200">
-                    Run #{selectedRun.id} — {new Date(selectedRun.started_at).toLocaleString('tr-TR')}
-                  </p>
-                  <p className="text-[10px] text-gray-600">
-                    {selectedRun.total_new} yeni · {selectedRun.total_found} bulunan · {selectedRun.total_ai_processed} AI işlendi
-                  </p>
-                </div>
-                <span className={`ml-auto rounded-full px-2 py-0.5 text-[10px] font-bold ${
-                  selectedRun.status === 'success' ? 'bg-emerald-950 text-emerald-400 border border-emerald-800/40' :
-                  selectedRun.status === 'failed'  ? 'bg-red-950 text-red-400 border border-red-800/40' :
-                  'bg-amber-950 text-amber-400 border border-amber-800/40'
-                }`}>
-                  {selectedRun.status === 'success' ? '✓ Tamamlandı' : selectedRun.status === 'failed' ? '✗ Hata' : '⟳ Çalışıyor'}
-                </span>
+          {/* History header */}
+          {isHistoryView && selectedRun && (
+            <div className="mb-4 flex items-center gap-3">
+              <button
+                onClick={() => setSelectedRun(null)}
+                className="rounded-lg border border-gray-700 bg-gray-900 px-3 py-1 text-xs text-gray-400 hover:text-white transition"
+              >
+                ← Geri
+              </button>
+              <div>
+                <p className="text-xs font-semibold text-gray-200">
+                  Run #{selectedRun.id} — {new Date(selectedRun.started_at).toLocaleString('tr-TR')}
+                </p>
+                <p className="text-[10px] text-gray-600">
+                  {selectedRun.total_new} yeni · {selectedRun.total_found} bulunan · {selectedRun.total_ai_processed} AI işlendi
+                  {selectedRun.input_tokens ? ` · ${(selectedRun.input_tokens + (selectedRun.output_tokens ?? 0)).toLocaleString()} token` : ''}
+                </p>
               </div>
-              {historyLoading ? (
-                <div className="flex items-center gap-2 py-8 text-sm text-gray-600">
-                  <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-brand-500 border-t-transparent" />
-                  Log yükleniyor…
-                </div>
-              ) : historyEvents.length === 0 ? (
-                <div className="py-12 text-center text-gray-700 text-xs">Bu run için kayıtlı log yok.</div>
-              ) : (
-                historyEvents.map((event, i) => <EventCard key={i} event={event} />)
-              )}
-            </>
+              <span className={`ml-auto rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                selectedRun.status === 'success'   ? 'bg-emerald-950 text-emerald-400 border border-emerald-800/40' :
+                selectedRun.status === 'failed'    ? 'bg-red-950 text-red-400 border border-red-800/40' :
+                selectedRun.status === 'cancelled' ? 'bg-amber-950 text-amber-400 border border-amber-800/40' :
+                'bg-gray-900 text-gray-400 border border-gray-700'
+              }`}>
+                {selectedRun.status === 'success'   ? '✓ Tamamlandı' :
+                 selectedRun.status === 'failed'    ? '✗ Hata' :
+                 selectedRun.status === 'cancelled' ? '○ İptal' : '⟳ Çalışıyor'}
+              </span>
+            </div>
           )}
 
-          {/* Live run view */}
-          {(!selectedRun || running) && (
-            <>
-              {events.length === 0 && !running && (
-                <div className="py-16 text-center text-gray-700">
-                  <p className="text-4xl mb-3 opacity-20">🐦</p>
-                  <p className="text-sm">Pipeline başlatmak için ▶ Başlat'a bas.</p>
-                  <p className="mt-1 text-xs">AI değerlendirmeleri burada canlı görünecek.</p>
-                </div>
-              )}
-              {events.length === 0 && running && (
-                <div className="flex items-center gap-2 py-8 text-sm text-gray-600">
-                  <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-brand-500 border-t-transparent" />
-                  Pipeline başlatılıyor…
-                </div>
-              )}
-              {events.map((event, i) => (
-                <EventCard key={i} event={event} />
-              ))}
+          {/* Empty/loading states */}
+          {isHistoryView && historyLoading && (
+            <div className="flex items-center gap-2 py-8 text-sm text-gray-600">
+              <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-brand-500 border-t-transparent" />
+              Log yükleniyor…
+            </div>
+          )}
+          {!isHistoryView && baseEvents.length === 0 && !running && (
+            <div className="py-16 text-center text-gray-700">
+              <p className="text-4xl mb-3 opacity-20">🐦</p>
+              <p className="text-sm">Pipeline başlatmak için ▶ Başlat'a bas.</p>
+              <p className="mt-1 text-xs">AI değerlendirmeleri burada canlı görünecek.</p>
+            </div>
+          )}
+          {!isHistoryView && baseEvents.length === 0 && running && (
+            <div className="flex items-center gap-2 py-8 text-sm text-gray-600">
+              <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-brand-500 border-t-transparent" />
+              Pipeline başlatılıyor…
+            </div>
+          )}
 
-              {/* Recent Runs list — shown below live log when no run is active */}
-              {!running && recentRuns.length > 0 && (
-                <div className="mt-8 border-t border-gray-800 pt-6">
-                  <p className="mb-3 text-xs font-semibold uppercase tracking-widest text-gray-600">Geçmiş Çalışmalar</p>
-                  <div className="space-y-2">
-                    {recentRuns.map((run) => {
-                      const start = new Date(run.started_at)
-                      const end = run.completed_at ? new Date(run.completed_at) : null
-                      const durationMs = end ? end.getTime() - start.getTime() : null
-                      const durationStr = durationMs !== null
-                        ? durationMs >= 60000
-                          ? `${Math.floor(durationMs / 60000)}dk ${Math.floor((durationMs % 60000) / 1000)}s`
-                          : `${Math.floor(durationMs / 1000)}s`
-                        : null
-                      return (
-                        <button
-                          key={run.id}
-                          onClick={() => loadRunHistory(run)}
-                          className="w-full rounded-lg border border-gray-800 bg-gray-900/60 px-4 py-2.5 text-left transition hover:border-gray-700 hover:bg-gray-900"
-                        >
-                          <div className="flex items-center gap-2">
-                            <span className={`h-2 w-2 shrink-0 rounded-full ${
-                              run.status === 'success' ? 'bg-emerald-500' :
-                              run.status === 'failed'  ? 'bg-red-500' : 'bg-amber-400'
-                            }`} />
-                            <span className="flex-1 text-[11px] font-medium text-gray-300">
-                              {start.toLocaleString('tr-TR', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
-                              {run.source_slug !== 'all' && (
-                                <span className="ml-1.5 text-gray-600">({run.source_slug})</span>
-                              )}
-                            </span>
-                            <span className="text-[10px] text-emerald-500">+{run.total_new}</span>
-                            <span className="text-[10px] text-gray-600">/ {run.total_found}</span>
-                            {durationStr && <span className="text-[10px] text-gray-700">{durationStr}</span>}
-                          </div>
-                          {run.error_message && (
-                            <p className="mt-1 truncate text-[9px] text-red-500">{run.error_message}</p>
+          {displayedEvents.map((event, i) => <EventCard key={i} event={event} />)}
+
+          {baseEvents.length > 0 && displayedEvents.length === 0 && (
+            <div className="py-12 text-center text-[11px] text-gray-700">
+              Filtre veya arama hiçbir olayı eşlemiyor.
+            </div>
+          )}
+
+          {/* Recent Runs panel */}
+          {!isHistoryView && !running && recentWithDelta.length > 0 && (
+            <div className="mt-8 border-t border-gray-800 pt-6">
+              <p className="mb-3 text-xs font-semibold uppercase tracking-widest text-gray-600">Geçmiş Çalışmalar</p>
+              <div className="space-y-2">
+                {recentWithDelta.map((run) => {
+                  const start = new Date(run.started_at)
+                  const end = run.completed_at ? new Date(run.completed_at) : null
+                  const durationMs = end ? end.getTime() - start.getTime() : null
+                  const durationStr = durationMs !== null
+                    ? durationMs >= 60000
+                      ? `${Math.floor(durationMs / 60000)}dk ${Math.floor((durationMs % 60000) / 1000)}s`
+                      : `${Math.floor(durationMs / 1000)}s`
+                    : null
+                  const tokens = (run.input_tokens ?? 0) + (run.output_tokens ?? 0)
+                  return (
+                    <button
+                      key={run.id}
+                      onClick={() => loadRunHistory(run)}
+                      className="w-full rounded-lg border border-gray-800 bg-gray-900/60 px-4 py-2.5 text-left transition hover:border-gray-700 hover:bg-gray-900"
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className={`h-2 w-2 shrink-0 rounded-full ${
+                          run.status === 'success'   ? 'bg-emerald-500' :
+                          run.status === 'failed'    ? 'bg-red-500' :
+                          run.status === 'cancelled' ? 'bg-amber-400' : 'bg-blue-400 animate-pulse'
+                        }`} />
+                        <span className="flex-1 text-[11px] font-medium text-gray-300">
+                          {start.toLocaleString('tr-TR', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                          {run.source_slug !== 'all' && (
+                            <span className="ml-1.5 text-gray-600">({run.source_slug})</span>
                           )}
-                        </button>
-                      )
-                    })}
-                  </div>
-                </div>
-              )}
-            </>
+                        </span>
+                        <span className="text-[10px] text-emerald-500">+{run.total_new}</span>
+                        {run.deltaNew !== 0 && (
+                          <span className={`text-[9px] ${run.deltaNew > 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                            {run.deltaNew > 0 ? '↑' : '↓'}{Math.abs(run.deltaNew)}
+                          </span>
+                        )}
+                        <span className="text-[10px] text-gray-600">/ {run.total_found}</span>
+                        {durationStr && <span className="text-[10px] text-gray-700">{durationStr}</span>}
+                        {tokens > 0 && <span className="text-[9px] text-gray-700">🪙 {tokens.toLocaleString()}</span>}
+                      </div>
+                      {run.error_message && (
+                        <p className="mt-1 truncate text-[9px] text-red-500">{run.error_message}</p>
+                      )}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
           )}
 
           <div ref={bottomRef} />

@@ -226,6 +226,9 @@ def process_article(article: Article, source_name: str, db: Session, *, context_
     """Run Call A → Call B1 → Call B2 on a single article, updating it in-place."""
     from app.ai import progress
 
+    if progress.is_cancelled():
+        return
+
     content = _truncate(article.raw_content)
 
     # Increment attempt counter up front; quarantine if exceeded
@@ -304,6 +307,9 @@ def process_article(article: Article, source_name: str, db: Session, *, context_
             reason=f"decision={decision} · confidence {int(confidence)}/5",
         )
         logger.info("Article %s rejected (decision=%s, confidence=%.0f)", article.id, decision, confidence)
+        return
+
+    if progress.is_cancelled():
         return
 
     why_it_matters = result_a.get("why_it_matters_for_users", "")

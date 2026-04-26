@@ -256,8 +256,13 @@ async def _ai_process_pending(db: Session) -> int:
     progress.emit(f"Starting AI analysis for {total} articles", kind="ai_batch_start", total=total)
 
     for i in range(0, total, batch_size):
+        if progress.is_cancelled():
+            progress.emit("AI analysis cancelled by user", kind="info")
+            break
         batch = pending[i: i + batch_size]
         for j, article in enumerate(batch):
+            if progress.is_cancelled():
+                break
             source_name = article.source.name if article.source else "Unknown"
             context_prompt = article.source.context_prompt if article.source else None
             current = i + j + 1
@@ -354,9 +359,8 @@ async def run_scrape_pipeline(source_slug: str = "all") -> dict:
 
     db = SessionLocal()
     pipeline_run: PipelineRun | None = None
+    cancelled = False
     try:
-        progress.start()
-
         pipeline_run = PipelineRun(
             started_at=datetime.utcnow(),
             status="running",
@@ -364,8 +368,11 @@ async def run_scrape_pipeline(source_slug: str = "all") -> dict:
         )
         db.add(pipeline_run)
         db.flush()
-        progress.set_run_id(pipeline_run.id)
+        run_id = pipeline_run.id
         db.commit()
+
+        progress.start(run_id)
+        progress.emit(f"Pipeline started (run #{run_id})", kind="info")
 
         _seed_sources(db)
 
@@ -385,7 +392,10 @@ async def run_scrape_pipeline(source_slug: str = "all") -> dict:
 
         progress.emit(f"{total_new} new articles found across all sources", kind="scrape")
 
-        if total_new > 0:
+        if progress.is_cancelled():
+            progress.emit("Pipeline cancelled — skipping AI analysis", kind="info")
+            cancelled = True
+        elif total_new > 0:
             deduped = _deduplicate_cross_source(db)
             if deduped:
                 progress.emit(f"{deduped} cross-source duplicates removed", kind="info")
@@ -397,34 +407,51 @@ async def run_scrape_pipeline(source_slug: str = "all") -> dict:
 
             progress.emit("Starting AI analysis…", kind="info")
 
-        # AI processing — async so sleeps yield to event loop (SSE flush)
-        processed = await _ai_process_pending(db)
+        processed = 0
+        if not cancelled and not progress.is_cancelled():
+            processed = await _ai_process_pending(db)
+        if progress.is_cancelled():
+            cancelled = True
 
-        _flag_featured(db)
+        if not cancelled:
+            _flag_featured(db)
 
         if pipeline_run is not None:
-            pipeline_run.status = "success"
+            in_tok, out_tok = progress.get_usage(run_id)
+            pipeline_run.status = "cancelled" if cancelled else "success"
             pipeline_run.completed_at = datetime.utcnow()
             pipeline_run.total_found = total_found
             pipeline_run.total_new = total_new
             pipeline_run.total_ai_processed = processed
+            pipeline_run.input_tokens = in_tok
+            pipeline_run.output_tokens = out_tok
             db.commit()
 
-        progress.finish()
+        progress.finish(run_id)
 
-        return {"sources_scraped": len(sources), "found": total_found, "new": total_new, "ai_processed": processed}
+        return {
+            "sources_scraped": len(sources),
+            "found": total_found,
+            "new": total_new,
+            "ai_processed": processed,
+            "cancelled": cancelled,
+        }
     except Exception as exc:
         db.rollback()
         if pipeline_run is not None:
             try:
+                in_tok, out_tok = progress.get_usage(pipeline_run.id)
                 pipeline_run.status = "failed"
                 pipeline_run.completed_at = datetime.utcnow()
                 pipeline_run.error_message = str(exc)
+                pipeline_run.input_tokens = in_tok
+                pipeline_run.output_tokens = out_tok
                 db.commit()
             except Exception:
                 db.rollback()
         progress.emit(f"Error: {exc}", kind="error")
-        progress.finish()
+        if pipeline_run is not None:
+            progress.finish(pipeline_run.id)
         raise
     finally:
         db.close()

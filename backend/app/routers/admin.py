@@ -700,11 +700,18 @@ def reject_digest(
 # ── Live Progress Stream ──────────────────────────────────────────────────────
 
 @router.get("/scrape-events")
-async def scrape_events(request: Request, token: str | None = Query(None), since: int = Query(0)):
-    """SSE endpoint — streams scrape progress events.
-    Accepts token via Authorization: Bearer <token> header (preferred)
-    or ?token= query param (deprecated — visible in logs).
-    Use ?since=N to resume from a known event index (for tab-reconnect).
+async def scrape_events(
+    request: Request,
+    token: str | None = Query(None),
+    since: int = Query(0),
+    run_id: int | None = Query(None),
+):
+    """SSE endpoint — streams scrape progress events for a given run.
+
+    If run_id is provided, streams that specific run's events from in-memory state
+    (and falls back to the persisted events_json if the run is no longer in memory).
+    If run_id is omitted, streams the most recently active run (legacy behaviour).
+    Pass ?since=N to resume from a known event index.
     """
     auth_header = request.headers.get("Authorization", "")
     if auth_header.startswith("Bearer "):
@@ -719,17 +726,54 @@ async def scrape_events(request: Request, token: str | None = Query(None), since
 
     from app.ai import progress
 
+    # If no run_id given, pick the most recently active one (legacy behaviour)
+    target_run_id = run_id
+    if target_run_id is None:
+        actives = progress.list_active_run_ids()
+        if actives:
+            target_run_id = max(actives)
+
     async def generate():
         index = max(0, since)
         idle_ticks = 0
-        while idle_ticks < 600:  # max 5 min (600 × 0.5s)
-            events = progress.get_events(index)
+        # Idle timeout: 60 minutes (7200 ticks × 0.5s). Heartbeat keeps the
+        # connection alive without flooding event log.
+        while idle_ticks < 7200:
+            if target_run_id is not None:
+                events = progress.get_events(target_run_id, index)
+            else:
+                events = []
             for event in events:
                 yield f"data: {json.dumps(event)}\n\n"
                 index += 1
                 idle_ticks = 0
                 if event.get("kind") == "done":
                     return
+            # If the run is finished and not in memory, fetch the persisted JSON once and replay.
+            if target_run_id is not None and idle_ticks > 4 and not progress.is_active(target_run_id):
+                from app.models.pipeline_run import PipelineRun
+                from app.database import SessionLocal as _SL
+                _db = _SL()
+                try:
+                    row = _db.query(PipelineRun).filter(PipelineRun.id == target_run_id).first()
+                    if row and row.events_json:
+                        try:
+                            stored = json.loads(row.events_json)
+                            for event in stored[index:]:
+                                yield f"data: {json.dumps(event)}\n\n"
+                                index += 1
+                                if event.get("kind") == "done":
+                                    return
+                        except Exception:
+                            pass
+                finally:
+                    _db.close()
+                # Send a synthetic done so the client closes cleanly
+                yield f"data: {json.dumps({'message': 'Run finished', 'kind': 'done', 'ts': time.time()})}\n\n"
+                return
+            # Heartbeat every 15s (30 ticks) to keep proxies/browsers from closing the stream
+            if idle_ticks > 0 and idle_ticks % 30 == 0:
+                yield ": heartbeat\n\n"
             idle_ticks += 1
             await asyncio.sleep(0.5)
 
@@ -742,8 +786,10 @@ async def scrape_events(request: Request, token: str | None = Query(None), since
 
 # ── Manual Triggers ───────────────────────────────────────────────────────────
 
-# Prevents concurrent scrape runs — one scrape at a time across all sources
-_SCRAPE_LOCK = threading.Lock()
+# Per-source-slug active-run tracking. Multiple distinct slugs may run in parallel,
+# but a given slug (including "all") cannot start a second run while the first is active.
+_active_slugs: set[str] = set()
+_active_slugs_lock = threading.Lock()
 
 
 @router.post("/trigger-scrape", dependencies=[Depends(_check_token)])
@@ -751,17 +797,65 @@ async def trigger_scrape(source_slug: str = "all"):
     import asyncio
     from app.pipeline.orchestrator import run_scrape_pipeline
 
-    if not _SCRAPE_LOCK.acquire(blocking=False):
-        raise HTTPException(status_code=429, detail="A scrape is already running. Please wait for it to finish.")
+    with _active_slugs_lock:
+        if source_slug in _active_slugs:
+            raise HTTPException(
+                status_code=429,
+                detail=f"A scrape for '{source_slug}' is already running.",
+            )
+        if "all" in _active_slugs and source_slug != "all":
+            raise HTTPException(
+                status_code=429,
+                detail="An 'all-sources' scrape is currently running. Wait for it to finish.",
+            )
+        if source_slug == "all" and _active_slugs:
+            raise HTTPException(
+                status_code=429,
+                detail="Per-source scrapes are running. Wait or cancel them before starting an 'all' run.",
+            )
+        _active_slugs.add(source_slug)
+
+    # Capture the new run id so the client can immediately subscribe to it.
+    started_event = threading.Event()
+    captured: dict = {}
 
     def _run_in_thread():
         try:
-            asyncio.run(run_scrape_pipeline(source_slug))
+            # Hook into progress.start so we can grab the run id as soon as the
+            # orchestrator registers it. Replace momentarily, restore in finally.
+            from app.ai import progress as _prog
+            original_start = _prog.start
+
+            def _start_capture(run_id: int):
+                captured["run_id"] = run_id
+                started_event.set()
+                return original_start(run_id)
+
+            _prog.start = _start_capture  # type: ignore[assignment]
+            try:
+                asyncio.run(run_scrape_pipeline(source_slug))
+            finally:
+                _prog.start = original_start  # type: ignore[assignment]
+                started_event.set()  # ensure waiter unblocks even on early failure
         finally:
-            _SCRAPE_LOCK.release()
+            with _active_slugs_lock:
+                _active_slugs.discard(source_slug)
 
     threading.Thread(target=_run_in_thread, daemon=True).start()
-    return {"message": f"Scrape triggered for '{source_slug}'"}
+    started_event.wait(timeout=2.0)
+    return {
+        "message": f"Scrape triggered for '{source_slug}'",
+        "run_id": captured.get("run_id"),
+    }
+
+
+@router.post("/pipeline-runs/{run_id}/cancel", dependencies=[Depends(_check_token)])
+def cancel_pipeline_run(run_id: int):
+    """Request cooperative cancellation of an active pipeline run."""
+    from app.ai import progress
+    if not progress.request_cancel(run_id):
+        raise HTTPException(status_code=404, detail="Run not active or not found")
+    return {"message": f"Cancellation requested for run {run_id}", "run_id": run_id}
 
 
 @router.post("/trigger-digest", dependencies=[Depends(_check_token)])
@@ -818,35 +912,96 @@ def get_scrape_runs(
 # ── Pipeline Runs (persistent log) ───────────────────────────────────────────
 
 @router.get("/pipeline-runs/active", dependencies=[Depends(_check_token)])
-def get_active_pipeline_run(db: Session = Depends(get_db)):
-    """Return the currently running PipelineRun, or null if none is active."""
+def get_active_pipeline_runs(db: Session = Depends(get_db)):
+    """Return all currently running PipelineRuns (parallel runs supported)."""
     from app.ai import progress
-    if not progress.is_active():
-        return {"active": None}
-    run = (
+    active_ids = progress.list_active_run_ids()
+    if not active_ids:
+        return {"active": [], "active_run": None}
+    runs = (
         db.query(PipelineRun)
-        .filter(PipelineRun.status == "running")
+        .filter(PipelineRun.id.in_(active_ids))
         .order_by(PipelineRun.started_at.desc())
-        .first()
+        .all()
     )
-    if run is None:
-        return {"active": None}
-    return {
-        "active": {
-            "id": run.id,
-            "started_at": run.started_at,
-            "source_slug": run.source_slug,
-            "status": run.status,
+    rows = [
+        {
+            "id": r.id,
+            "started_at": r.started_at,
+            "source_slug": r.source_slug,
+            "status": r.status,
+            "total_found": r.total_found,
+            "total_new": r.total_new,
+            "total_ai_processed": r.total_ai_processed,
         }
+        for r in runs
+    ]
+    # Backwards-compat: `active` was singular before. Keep both shapes.
+    return {"active": rows, "active_run": rows[0] if rows else None}
+
+
+def _compute_stats(events: list[dict]) -> dict:
+    """Aggregate per-kind counters and per-phase timing for a run's event log."""
+    found = analyzed = published = skipped = errors = 0
+    clustered_extra = 0
+    phases: dict[str, dict] = {}
+    for ev in events:
+        k = ev.get("kind")
+        ts = ev.get("ts")
+        if k == "found":
+            found += 1
+        elif k == "scored":
+            analyzed += 1
+        elif k == "publish":
+            published += 1
+        elif k == "skipped":
+            skipped += 1
+        elif k == "error":
+            errors += 1
+        elif k == "clustered":
+            clustered_extra += max(0, int(ev.get("cluster_size") or 1) - 1)
+        if ts is not None and k in ("source_start", "fetch_start", "fetch_done", "ai_batch_start",
+                                     "analyzing", "rewriting", "publish", "scored", "found",
+                                     "source_done", "done", "info"):
+            phases.setdefault(k, {"first": ts, "last": ts, "count": 0})
+            phases[k]["last"] = ts
+            phases[k]["count"] += 1
+
+    # Compute simple phase durations
+    timing = {}
+    if events:
+        start_ts = events[0].get("ts")
+        end_ts = events[-1].get("ts")
+        if start_ts and end_ts:
+            timing["total_seconds"] = round(end_ts - start_ts, 1)
+    # Scrape phase: source_start..source_done
+    if "source_start" in phases and "source_done" in phases:
+        timing["scrape_seconds"] = round(phases["source_done"]["last"] - phases["source_start"]["first"], 1)
+    # AI phase: ai_batch_start..(last publish or done)
+    if "ai_batch_start" in phases:
+        end = phases.get("done", {}).get("last") or phases.get("publish", {}).get("last") or phases["ai_batch_start"]["last"]
+        timing["ai_seconds"] = round(end - phases["ai_batch_start"]["first"], 1)
+
+    pass_rate = round((published / analyzed) * 100) if analyzed else None
+    return {
+        "found": found,
+        "analyzed": analyzed,
+        "published": published,
+        "skipped": skipped,
+        "errors": errors,
+        "clustered_extra": clustered_extra,
+        "pass_rate": pass_rate,
+        "timing": timing,
     }
 
 
 @router.get("/pipeline-runs/{run_id}", dependencies=[Depends(_check_token)])
 def get_pipeline_run(run_id: int, db: Session = Depends(get_db)):
-    """Return a single PipelineRun including its events_json."""
+    """Return a single PipelineRun including its events_json + computed stats."""
     run = db.query(PipelineRun).filter(PipelineRun.id == run_id).first()
     if run is None:
         raise HTTPException(status_code=404, detail="Pipeline run not found")
+    events = json.loads(run.events_json) if run.events_json else []
     return {
         "id": run.id,
         "started_at": run.started_at,
@@ -856,8 +1011,11 @@ def get_pipeline_run(run_id: int, db: Session = Depends(get_db)):
         "total_found": run.total_found,
         "total_new": run.total_new,
         "total_ai_processed": run.total_ai_processed,
+        "input_tokens": run.input_tokens,
+        "output_tokens": run.output_tokens,
         "error_message": run.error_message,
-        "events": json.loads(run.events_json) if run.events_json else [],
+        "events": events,
+        "stats": _compute_stats(events),
     }
 
 
@@ -885,6 +1043,8 @@ def list_pipeline_runs(
             "total_found": r.total_found,
             "total_new": r.total_new,
             "total_ai_processed": r.total_ai_processed,
+            "input_tokens": r.input_tokens,
+            "output_tokens": r.output_tokens,
             "error_message": r.error_message,
         }
         for r in runs

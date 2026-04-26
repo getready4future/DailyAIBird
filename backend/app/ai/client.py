@@ -122,6 +122,20 @@ def _get_openai():
     return _openai_client
 
 
+def _record_usage(response) -> None:
+    """Push token counts into the progress run-cost accumulator (best-effort)."""
+    try:
+        usage = getattr(response, "usage", None)
+        if usage is None:
+            return
+        prompt_t = int(getattr(usage, "prompt_tokens", 0) or 0)
+        completion_t = int(getattr(usage, "completion_tokens", 0) or 0)
+        from app.ai import progress
+        progress.add_usage(prompt_t, completion_t)
+    except Exception:
+        pass
+
+
 def _call_openrouter(prompt: str, max_tokens: int, temperature: float | None = None) -> str:
     global _openrouter_ok, _openrouter_cooldown_until
     from openai import RateLimitError
@@ -136,6 +150,7 @@ def _call_openrouter(prompt: str, max_tokens: int, temperature: float | None = N
         kwargs["temperature"] = temperature
     try:
         response = client.chat.completions.create(**kwargs)
+        _record_usage(response)
         with _state_lock:
             _openrouter_ok = True
             _openrouter_cooldown_until = 0.0
@@ -179,6 +194,7 @@ def _call_generic(prompt: str, max_tokens: int, temperature: float | None = None
         kwargs["temperature"] = temperature
     try:
         response = client.chat.completions.create(**kwargs)
+        _record_usage(response)
         return response.choices[0].message.content or ""
     except RateLimitError:
         logger.warning("Generic AI rate limit — waiting 30s")
@@ -190,6 +206,7 @@ def _call_generic(prompt: str, max_tokens: int, temperature: float | None = None
         except RuntimeError:
             time.sleep(30)
         response = client.chat.completions.create(**kwargs)
+        _record_usage(response)
         return response.choices[0].message.content or ""
 
 
