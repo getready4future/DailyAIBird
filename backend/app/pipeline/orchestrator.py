@@ -352,8 +352,12 @@ def _flag_featured(db: Session) -> None:
     db.commit()
 
 
-async def run_scrape_pipeline(source_slug: str = "all") -> dict:
-    """Entry point called by scheduler or admin endpoint."""
+async def run_scrape_pipeline(source_slug: str = "all", run_id: int | None = None) -> dict:
+    """Entry point called by scheduler or admin endpoint.
+
+    If run_id is provided, the caller has already created the PipelineRun row
+    and we just attach to it. Otherwise we create a new one.
+    """
     from app.ai import progress
     from app.models.pipeline_run import PipelineRun
 
@@ -361,15 +365,18 @@ async def run_scrape_pipeline(source_slug: str = "all") -> dict:
     pipeline_run: PipelineRun | None = None
     cancelled = False
     try:
-        pipeline_run = PipelineRun(
-            started_at=datetime.utcnow(),
-            status="running",
-            source_slug=source_slug,
-        )
-        db.add(pipeline_run)
-        db.flush()
+        if run_id is not None:
+            pipeline_run = db.query(PipelineRun).filter(PipelineRun.id == run_id).first()
+        if pipeline_run is None:
+            pipeline_run = PipelineRun(
+                started_at=datetime.utcnow(),
+                status="running",
+                source_slug=source_slug,
+            )
+            db.add(pipeline_run)
+            db.flush()
+            db.commit()
         run_id = pipeline_run.id
-        db.commit()
 
         progress.start(run_id)
         progress.emit(f"Pipeline started (run #{run_id})", kind="info")

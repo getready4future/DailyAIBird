@@ -793,7 +793,7 @@ _active_slugs_lock = threading.Lock()
 
 
 @router.post("/trigger-scrape", dependencies=[Depends(_check_token)])
-async def trigger_scrape(source_slug: str = "all"):
+async def trigger_scrape(source_slug: str = "all", db: Session = Depends(get_db)):
     import asyncio
     from app.pipeline.orchestrator import run_scrape_pipeline
 
@@ -815,37 +815,34 @@ async def trigger_scrape(source_slug: str = "all"):
             )
         _active_slugs.add(source_slug)
 
-    # Capture the new run id so the client can immediately subscribe to it.
-    started_event = threading.Event()
-    captured: dict = {}
+    # Create the PipelineRun row synchronously so we can return run_id to the
+    # client immediately. The orchestrator then attaches to this row.
+    try:
+        pipeline_run = PipelineRun(
+            started_at=datetime.utcnow(),
+            status="running",
+            source_slug=source_slug,
+        )
+        db.add(pipeline_run)
+        db.commit()
+        db.refresh(pipeline_run)
+        run_id = pipeline_run.id
+    except Exception:
+        with _active_slugs_lock:
+            _active_slugs.discard(source_slug)
+        raise
 
     def _run_in_thread():
         try:
-            # Hook into progress.start so we can grab the run id as soon as the
-            # orchestrator registers it. Replace momentarily, restore in finally.
-            from app.ai import progress as _prog
-            original_start = _prog.start
-
-            def _start_capture(run_id: int):
-                captured["run_id"] = run_id
-                started_event.set()
-                return original_start(run_id)
-
-            _prog.start = _start_capture  # type: ignore[assignment]
-            try:
-                asyncio.run(run_scrape_pipeline(source_slug))
-            finally:
-                _prog.start = original_start  # type: ignore[assignment]
-                started_event.set()  # ensure waiter unblocks even on early failure
+            asyncio.run(run_scrape_pipeline(source_slug, run_id=run_id))
         finally:
             with _active_slugs_lock:
                 _active_slugs.discard(source_slug)
 
     threading.Thread(target=_run_in_thread, daemon=True).start()
-    started_event.wait(timeout=2.0)
     return {
         "message": f"Scrape triggered for '{source_slug}'",
-        "run_id": captured.get("run_id"),
+        "run_id": run_id,
     }
 
 
