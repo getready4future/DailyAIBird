@@ -13,6 +13,7 @@ interface PipelineConfig {
   top_featured: number
   scrape_concurrency: number
   ai_batch_size: number
+  max_articles_per_source: number
 }
 
 interface PipelineStats {
@@ -118,28 +119,43 @@ function ConfigCard({ config }: { config: PipelineConfig }) {
     <div className="rounded-2xl border border-gray-800 bg-gray-900 p-6">
       <p className="mb-5 text-[10px] font-bold tracking-widest text-gray-500 uppercase">Pipeline Ayarları</p>
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      {/* Scraping limits */}
+      <p className="mb-3 text-[10px] font-semibold tracking-widest text-brand-500 uppercase">Scraping</p>
+      <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <NumInput label="Max makale / kaynak" value={draft.max_articles_per_source} min={1} max={200} step={1}
+          onChange={(v) => set('max_articles_per_source', v)}
+          hint="Her kaynaktan en fazla kaç makale çekilir (global üst limit)" />
+        <NumInput label="Scrape eşzamanlılık" value={draft.scrape_concurrency} min={1} max={20} step={1}
+          onChange={(v) => set('scrape_concurrency', v)}
+          hint="Aynı anda taranan kaynak sayısı" />
         <NumInput label="Cutoff (saat)" value={draft.cutoff_hours} min={1} max={168} step={1}
           onChange={(v) => set('cutoff_hours', v)}
           hint="Bu saatten eski makaleler işlenmez" />
+      </div>
+
+      {/* Dedup & quality */}
+      <p className="mb-3 text-[10px] font-semibold tracking-widest text-brand-500 uppercase">Kalite & Dedup</p>
+      <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <NumInput label="Dedup eşiği" value={draft.dedup_threshold} min={0.1} max={1.0} step={0.05}
           onChange={(v) => set('dedup_threshold', v)}
           hint="0.65 = benzerlik eşiği (düşük = daha agresif dedup)" />
         <NumInput label="Min. güven skoru" value={draft.confidence_reject_threshold} min={1} max={5} step={1}
           onChange={(v) => set('confidence_reject_threshold', v)}
           hint="Altındaki makaleler reddedilir (1–5)" />
+        <NumInput label="AI batch boyutu" value={draft.ai_batch_size} min={1} max={20} step={1}
+          onChange={(v) => set('ai_batch_size', v)}
+          hint="Aynı anda işlenen makale sayısı" />
+      </div>
+
+      {/* Featured */}
+      <p className="mb-3 text-[10px] font-semibold tracking-widest text-brand-500 uppercase">Öne Çıkanlar</p>
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <NumInput label="Feature min skor" value={draft.feature_min_score} min={0} max={1.0} step={0.05}
           onChange={(v) => set('feature_min_score', v)}
           hint="Öne çıkan makale için min. combined skor" />
         <NumInput label="Max featured" value={draft.top_featured} min={1} max={20} step={1}
           onChange={(v) => set('top_featured', v)}
           hint="24 saatte en fazla kaç makale öne çıkar" />
-        <NumInput label="AI batch boyutu" value={draft.ai_batch_size} min={1} max={20} step={1}
-          onChange={(v) => set('ai_batch_size', v)}
-          hint="Aynı anda işlenen makale sayısı" />
-        <NumInput label="Scrape eşzamanlılık" value={draft.scrape_concurrency} min={1} max={20} step={1}
-          onChange={(v) => set('scrape_concurrency', v)}
-          hint="Aynı anda taranan kaynak sayısı" />
       </div>
 
       <div className="mt-5 flex items-center gap-3">

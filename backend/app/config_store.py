@@ -58,7 +58,7 @@ def get_all() -> dict:
 # ── Convenience helpers ────────────────────────────────────────────────────────
 
 def get_max_articles_per_source() -> int:
-    return int(get_setting("max_articles_per_source", settings.MAX_ARTICLES_PER_SOURCE))
+    return int(get_pipeline_config().get("max_articles_per_source", settings.MAX_ARTICLES_PER_SOURCE))
 
 
 DEFAULT_SCHEDULE = {
@@ -93,6 +93,7 @@ DEFAULT_PIPELINE_CONFIG = {
     "top_featured": 5,
     "scrape_concurrency": 5,
     "ai_batch_size": 5,
+    "max_articles_per_source": settings.MAX_ARTICLES_PER_SOURCE,
 }
 
 
