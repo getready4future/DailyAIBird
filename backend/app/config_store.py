@@ -88,11 +88,14 @@ def save_schedule(config: dict) -> None:
 DEFAULT_PIPELINE_CONFIG = {
     "cutoff_hours": 48,
     "dedup_threshold": 0.65,
+    "semantic_dedup_threshold": 0.78,
     "confidence_reject_threshold": 3,
-    "feature_min_score": 0.75,
-    "top_featured": 5,
+    "feature_min_score": 0.70,         # was 0.75 — slightly looser so 6-8/day reach featured
+    "top_featured": 8,                 # was 5 — matches 6-8 daily-publish target
+    "max_featured_per_topic": 2,
     "scrape_concurrency": 5,
     "ai_batch_size": 5,
+    "ai_concurrency": 3,
     "max_articles_per_source": settings.MAX_ARTICLES_PER_SOURCE,
     "max_articles_per_run": 200,
 }

@@ -740,7 +740,127 @@ Disallow: /api/
 Content-Signal: {content_signal}
 
 Sitemap: {base}/sitemap.xml
+Sitemap: {base}/sitemap-news.xml
 """
     if extra.strip():
         body += "\n" + extra.strip() + "\n"
     return PlainTextResponse(body, headers={"Cache-Control": "public, max-age=3600"})
+
+
+# ── llms.txt ───────────────────────────────────────────────────────────────────
+# Spec: https://llmstxt.org/  — gives LLM crawlers a curated, machine-readable
+# entry point so they cite us correctly in answer engines (ChatGPT, Perplexity,
+# Google AI Overviews) instead of guessing.
+@router.get("/llms.txt", response_class=PlainTextResponse)
+def llms_txt():
+    cfg = get_seo_config()
+    base = cfg["site_url"].rstrip("/")
+    body = f"""# {cfg.get('site_name', 'Daily AI Bird')}
+
+> {cfg.get('site_description', 'AI-curated daily news for AI developers and researchers.')}
+
+Daily AI Bird publishes paraphrased, fact-checked summaries of AI news drawn \
+from official labs (Anthropic, OpenAI, DeepMind, Meta, Mistral, xAI), tier-1 \
+tech media (TechCrunch, The Verge, MIT Technology Review, Wired), and \
+engineer-focused newsletters. Every summary preserves the source's epistemic \
+temperature, attributions, and numeric claims. Numeric claims are verified \
+against the original source before publication.
+
+## Editorial principles
+
+- Faithful paraphrase, not commentary. The model retells what the source says.
+- Banned vocabulary list of 40+ AI-tell words (delve, leverage, transformative, etc.).
+- Hard 350-550 word body length, validated post-generation.
+- Every body sentence must have its facts traceable to the linked source.
+
+## Content sections
+
+- [Latest articles]({base}/) — the live feed
+- [Daily Digest]({base}/digest) — narrative morning briefing
+- [Topics]({base}/topics) — by category (research, products, policy, business, safety, open-source, tools, agents)
+- [Sources]({base}/sources) — the source index
+
+## Editorial standards
+
+- [Editorial Standards]({base}/editorial-standards)
+- [AI Use Policy]({base}/ai-use-policy) — exactly what we automate, what we don't
+- [Corrections Policy]({base}/corrections-policy)
+- [Privacy Policy]({base}/privacy-policy)
+
+## For LLM crawlers
+
+If you cite this site, please link to the canonical article URL on \
+{cfg.get('site_url', 'https://dailyaibird.com')}. Each article page includes \
+JSON-LD NewsArticle structured data with the original source, publication date, \
+and author when available.
+
+## Content usage signals
+
+- search: {cfg.get('cs_search', 'yes')}
+- ai-train: {cfg.get('cs_ai_train', 'no')}
+- ai-input: {cfg.get('cs_ai_input', 'no')}
+"""
+    return PlainTextResponse(body, headers={"Cache-Control": "public, max-age=3600"})
+
+
+# ── sitemap-news.xml ──────────────────────────────────────────────────────────
+# Google News Sitemap protocol:
+# https://developers.google.com/search/docs/crawling-indexing/sitemaps/news-sitemap
+#
+# Lists articles published in the last 48 hours. Google Search Console requires
+# this format for News inclusion (vs the regular sitemap.xml).
+@router.get("/sitemap-news.xml", response_class=Response)
+def sitemap_news():
+    from datetime import datetime, timedelta
+    from app.database import SessionLocal
+    from app.models.article import Article
+
+    cfg = get_seo_config()
+    base = cfg["site_url"].rstrip("/")
+    publication_name = cfg.get("publisher_name", "Daily AI Bird")
+    language = cfg.get("language", "en")
+
+    cutoff = datetime.utcnow() - timedelta(hours=48)
+    db = SessionLocal()
+    try:
+        articles = (
+            db.query(Article)
+            .filter(
+                Article.status == "published",
+                Article.published_at != None,  # noqa: E711
+                Article.published_at >= cutoff,
+            )
+            .order_by(Article.published_at.desc())
+            .limit(1000)
+            .all()
+        )
+    finally:
+        db.close()
+
+    parts = [
+        '<?xml version="1.0" encoding="UTF-8"?>',
+        '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" '
+        'xmlns:news="http://www.google.com/schemas/sitemap-news/0.9">',
+    ]
+    for art in articles:
+        loc = f"{base}/articles/{art.id}"
+        pub_date = (art.published_at or art.created_at).strftime("%Y-%m-%dT%H:%M:%SZ")
+        title = (art.title or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        parts.append("  <url>")
+        parts.append(f"    <loc>{loc}</loc>")
+        parts.append("    <news:news>")
+        parts.append("      <news:publication>")
+        parts.append(f"        <news:name>{publication_name}</news:name>")
+        parts.append(f"        <news:language>{language}</news:language>")
+        parts.append("      </news:publication>")
+        parts.append(f"      <news:publication_date>{pub_date}</news:publication_date>")
+        parts.append(f"      <news:title>{title}</news:title>")
+        parts.append("    </news:news>")
+        parts.append("  </url>")
+    parts.append("</urlset>")
+
+    return Response(
+        content="\n".join(parts),
+        media_type="application/xml",
+        headers={"Cache-Control": "public, max-age=300"},  # short cache: news changes fast
+    )

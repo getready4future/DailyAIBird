@@ -28,9 +28,20 @@ export default function ArticleDetail() {
     datePublished: article.published_at,
     dateModified: article.published_at,
     author: article.author ? [{ '@type': 'Person', name: article.author }] : [{ '@type': 'Organization', name: article.source.name }],
-    publisher: { '@type': 'Organization', name: 'Daily AI Bird', url: 'https://dailyaibird.com' },
+    publisher: {
+      '@type': 'Organization',
+      name: 'Daily AI Bird',
+      url: 'https://dailyaibird.com',
+      logo: { '@type': 'ImageObject', url: 'https://dailyaibird.com/bird-og.png' },
+    },
     url: canonical,
     mainEntityOfPage: canonical,
+    articleBody: article.summary || description,
+    inLanguage: 'en',
+    isAccessibleForFree: true,
+    isBasedOn: article.url,  // tells Google this is a derived/synthesised piece
+    articleSection: article.topic ? article.topic.replace('_', ' ') : undefined,
+    keywords: Array.isArray(article.tags) ? article.tags.join(', ') : undefined,
   }
 
   const breadcrumbJsonLd = {
