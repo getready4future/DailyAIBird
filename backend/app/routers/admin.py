@@ -796,7 +796,18 @@ _active_slugs_lock = threading.Lock()
 @router.post("/trigger-scrape", dependencies=[Depends(_check_token)])
 async def trigger_scrape(source_slug: str = "all", db: Session = Depends(get_db)):
     import asyncio
-    from app.pipeline.orchestrator import run_scrape_pipeline
+    import traceback
+    import logging as _logging
+    _log = _logging.getLogger(__name__)
+
+    try:
+        from app.pipeline.orchestrator import run_scrape_pipeline
+    except Exception as exc:
+        _log.exception("trigger_scrape: failed to import orchestrator")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Pipeline import failed: {type(exc).__name__}: {exc}",
+        )
 
     with _active_slugs_lock:
         if source_slug in _active_slugs:
@@ -828,19 +839,36 @@ async def trigger_scrape(source_slug: str = "all", db: Session = Depends(get_db)
         db.commit()
         db.refresh(pipeline_run)
         run_id = pipeline_run.id
-    except Exception:
+    except Exception as exc:
+        _log.exception("trigger_scrape: failed to create PipelineRun row")
         with _active_slugs_lock:
             _active_slugs.discard(source_slug)
-        raise
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to create pipeline_runs row: {type(exc).__name__}: {exc}. "
+                   f"Trace tail: {traceback.format_exc().splitlines()[-3:]}",
+        )
 
     def _run_in_thread():
         try:
             asyncio.run(run_scrape_pipeline(source_slug, run_id=run_id))
+        except Exception:
+            _log.exception("Pipeline thread crashed for run %s", run_id)
         finally:
             with _active_slugs_lock:
                 _active_slugs.discard(source_slug)
 
-    threading.Thread(target=_run_in_thread, daemon=True).start()
+    try:
+        threading.Thread(target=_run_in_thread, daemon=True).start()
+    except Exception as exc:
+        _log.exception("trigger_scrape: failed to start runner thread")
+        with _active_slugs_lock:
+            _active_slugs.discard(source_slug)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to start runner thread: {type(exc).__name__}: {exc}",
+        )
+
     return {
         "message": f"Scrape triggered for '{source_slug}'",
         "run_id": run_id,
