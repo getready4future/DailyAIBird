@@ -54,29 +54,38 @@ def _seed_sources(db: Session) -> None:
     db.commit()
 
 
-async def _scrape_source(source: Source, db: Session) -> tuple[int, int]:
-    """Scrape one source and save new articles. Returns (found, new)."""
-    cfg = {
-        "slug": source.slug,
-        "url": source.url,
-        "feed_url": source.feed_url,
-        "scraper_type": source.scraper_type,
-        "scrape_config": json.loads(source.scrape_config or "{}"),
-    }
-    scraper = get_scraper(cfg)
-
-    run = ScrapeRun(source_id=source.id, started_at=datetime.utcnow(), status="running")
-    db.add(run)
-    db.commit()
-
-    cutoff = datetime.utcnow() - timedelta(hours=_cfg().get("cutoff_hours", CUTOFF_HOURS))
-    found = 0
-    new = 0
-
-    from app.ai import progress as _prog
-    _prog.emit(f"Scraping {source.name}…", kind="source_start", source=source.name)
-
+async def _scrape_source(source_id: int) -> tuple[int, int]:
+    """Scrape one source in an isolated DB session. Returns (found, new)."""
+    from app.database import SessionLocal
+    db = SessionLocal()
+    source_name = f"source#{source_id}"
+    run = None
     try:
+        source = db.query(Source).filter(Source.id == source_id).first()
+        if not source:
+            return 0, 0
+        source_name = source.name
+
+        cfg = {
+            "slug": source.slug,
+            "url": source.url,
+            "feed_url": source.feed_url,
+            "scraper_type": source.scraper_type,
+            "scrape_config": json.loads(source.scrape_config or "{}"),
+        }
+        scraper = get_scraper(cfg)
+
+        run = ScrapeRun(source_id=source.id, started_at=datetime.utcnow(), status="running")
+        db.add(run)
+        db.commit()
+
+        cutoff = datetime.utcnow() - timedelta(hours=_cfg().get("cutoff_hours", CUTOFF_HOURS))
+        found = 0
+        new = 0
+
+        from app.ai import progress as _prog
+        _prog.emit(f"Scraping {source.name}…", kind="source_start", source=source.name)
+
         _prog.emit("Fetching articles…", kind="fetch_start", source=source.name)
         async with SCRAPE_SEMAPHORE:
             articles: list[ScrapedArticle] = await scraper.fetch_articles()
@@ -87,7 +96,6 @@ async def _scrape_source(source: Source, db: Session) -> tuple[int, int]:
         from app.config_store import get_max_articles_per_source
         global_max = get_max_articles_per_source()
 
-        # Collect existing titles in DB for near-duplicate check
         existing_titles: list[str] = [
             a.title for a in db.query(Article.title)
             .filter(Article.source_id == source.id)
@@ -100,14 +108,12 @@ async def _scrape_source(source: Source, db: Session) -> tuple[int, int]:
         skip_old = skip_url = skip_title = 0
 
         for article in articles[:max_articles]:
-            # Skip old articles
             if article.published_at and article.published_at < cutoff:
                 skip_old += 1
                 _prog.emit(article.title, kind="skip_old", source=source.name, url=article.url,
                            reason=f"Too old ({article.published_at.strftime('%d %b %H:%M') if article.published_at else '?'})")
                 continue
 
-            # URL dedup
             norm_url = normalize_url(article.url)
             exists = db.query(Article).filter(Article.url == article.url).first()
             if not exists:
@@ -118,7 +124,6 @@ async def _scrape_source(source: Source, db: Session) -> tuple[int, int]:
                            reason="URL already in database")
                 continue
 
-            # Title near-dedup
             if any(titles_are_similar(article.title, t) for t in existing_titles):
                 skip_title += 1
                 _prog.emit(article.title, kind="skip_title", source=source.name, url=article.url,
@@ -171,15 +176,23 @@ async def _scrape_source(source: Source, db: Session) -> tuple[int, int]:
             total=found,
         )
         logger.info("Scraped %s: %d found, %d new", source.name, found, new)
+        return found, new
 
     except Exception as exc:
-        run.status = "failed"
-        run.error_message = str(exc)
-        run.completed_at = datetime.utcnow()
-        db.commit()
-        logger.error("Scrape failed for %s: %s", source.name, exc)
+        db.rollback()
+        logger.error("Scrape failed for %s: %s", source_name, exc)
+        if run is not None:
+            try:
+                run.status = "failed"
+                run.error_message = str(exc)
+                run.completed_at = datetime.utcnow()
+                db.commit()
+            except Exception:
+                db.rollback()
+        return 0, 0
 
-    return found, new
+    finally:
+        db.close()
 
 
 def _deduplicate_cross_source(db: Session) -> int:
@@ -259,6 +272,7 @@ async def _ai_process_pending(db: Session) -> int:
                 process_article(article, source_name, db, context_prompt=context_prompt)
                 processed += 1
             except Exception as exc:
+                db.rollback()
                 logger.error("AI processing failed for article %d: %s", article.id, exc)
             await asyncio.sleep(0.5)
         await asyncio.sleep(1)
@@ -310,8 +324,8 @@ async def run_scrape_pipeline(source_slug: str = "all") -> dict:
 
         progress.emit(f"Scraping {len(sources)} sources…", kind="info")
 
-        # Run all scrapes concurrently
-        tasks = [_scrape_source(src, db) for src in sources]
+        # Run all scrapes concurrently — each source gets its own DB session
+        tasks = [_scrape_source(src.id) for src in sources]
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
         total_found = sum(r[0] for r in results if isinstance(r, tuple))
@@ -339,6 +353,7 @@ async def run_scrape_pipeline(source_slug: str = "all") -> dict:
 
         return {"sources_scraped": len(sources), "found": total_found, "new": total_new, "ai_processed": processed}
     except Exception as exc:
+        db.rollback()
         progress.emit(f"Error: {exc}", kind="error")
         progress.finish()
         raise
