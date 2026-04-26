@@ -117,16 +117,37 @@ def _seed_sources() -> None:
 
 
 def _ensure_columns() -> None:
-    """Add columns that may be missing due to failed Alembic migrations."""
+    """Add columns that may be missing due to failed Alembic migrations.
+
+    This is a safety net — Alembic should be the source of truth, but if a
+    migration silently fails on startup the app still needs to boot with
+    the columns its ORM expects.
+    """
     from sqlalchemy import text
     stmts = [
+        # Migration 005
         "ALTER TABLE articles ADD COLUMN IF NOT EXISTS curiosity_score FLOAT",
         "ALTER TABLE articles ADD COLUMN IF NOT EXISTS momentum_score INTEGER NOT NULL DEFAULT 1",
+        # Earlier admin-fields
         "ALTER TABLE sources ADD COLUMN IF NOT EXISTS feed_url VARCHAR",
         "ALTER TABLE sources ADD COLUMN IF NOT EXISTS max_articles INTEGER",
         "ALTER TABLE sources ADD COLUMN IF NOT EXISTS context_prompt TEXT",
         "ALTER TABLE sources ADD COLUMN IF NOT EXISTS cron_schedule VARCHAR",
         "ALTER TABLE sources ADD COLUMN IF NOT EXISTS scrape_config TEXT DEFAULT '{}'",
+        # Migration 007: AI dead-letter
+        "ALTER TABLE articles ADD COLUMN IF NOT EXISTS ai_attempt_count INTEGER NOT NULL DEFAULT 0",
+        # Migration 008: pipeline cost columns
+        "ALTER TABLE pipeline_runs ADD COLUMN IF NOT EXISTS input_tokens INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE pipeline_runs ADD COLUMN IF NOT EXISTS output_tokens INTEGER NOT NULL DEFAULT 0",
+        # Migration 009: source health + RSS caching + retry queue
+        "ALTER TABLE sources ADD COLUMN IF NOT EXISTS etag VARCHAR(500)",
+        "ALTER TABLE sources ADD COLUMN IF NOT EXISTS last_modified VARCHAR(200)",
+        "ALTER TABLE sources ADD COLUMN IF NOT EXISTS health_score FLOAT NOT NULL DEFAULT 1.0",
+        "ALTER TABLE sources ADD COLUMN IF NOT EXISTS consecutive_failures INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE sources ADD COLUMN IF NOT EXISTS publish_rate_30d FLOAT NOT NULL DEFAULT 0.0",
+        "ALTER TABLE sources ADD COLUMN IF NOT EXISTS auto_disabled_at TIMESTAMP",
+        "ALTER TABLE articles ADD COLUMN IF NOT EXISTS next_retry_at TIMESTAMP",
+        "ALTER TABLE articles ADD COLUMN IF NOT EXISTS title_tokens TEXT",
     ]
     with engine.begin() as conn:
         for stmt in stmts:
