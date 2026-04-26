@@ -36,11 +36,22 @@ def _run_cleanup():
         db.close()
 
 
+def _run_source_health():
+    """Periodic source health recompute (daily) — even on days with no scrape runs."""
+    from app.pipeline.source_health import recompute_source_health
+
+    db = SessionLocal()
+    try:
+        disabled = recompute_source_health(db)
+        logger.info("Source health recompute: %d auto-disabled", disabled)
+    finally:
+        db.close()
+
+
 def create_scheduler() -> AsyncIOScheduler:
     scheduler = AsyncIOScheduler(timezone="UTC")
 
     # Run scrape every 6 hours so articles stay fresh throughout the day.
-    # Hours 0, 6, 12, 18 UTC — replacing the old single daily scrape.
     scheduler.add_job(
         _run_scrape,
         CronTrigger(hour="0,6,12,18", minute=0),
@@ -63,6 +74,13 @@ def create_scheduler() -> AsyncIOScheduler:
         _run_cleanup,
         CronTrigger(hour=3, minute=0),
         id="daily_cleanup",
+    )
+
+    # Source health recompute — daily at 03:30 UTC (after cleanup)
+    scheduler.add_job(
+        _run_source_health,
+        CronTrigger(hour=3, minute=30),
+        id="daily_source_health",
     )
 
     return scheduler

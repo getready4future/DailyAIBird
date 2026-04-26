@@ -16,6 +16,8 @@ import AdminUsers from './pages/AdminUsers'
 import AdminSourceDiscover from './pages/AdminSourceDiscover'
 import AdminPipeline from './pages/AdminPipeline'
 import AdminMonitor from './pages/AdminMonitor'
+import AdminPipelineHealth from './pages/AdminPipelineHealth'
+import AdminPrompts from './pages/AdminPrompts'
 import AdminSeo from './pages/AdminSeo'
 import AboutPage from './pages/AboutPage'
 import EditorialStandards from './pages/EditorialStandards'
@@ -62,6 +64,8 @@ export default function App() {
         <Route path="/admin/sources/find" element={<AdminSourceDiscover />} />
         <Route path="/admin/pipeline" element={<AdminPipeline />} />
         <Route path="/admin/monitor" element={<AdminMonitor />} />
+        <Route path="/admin/pipeline/health" element={<AdminPipelineHealth />} />
+        <Route path="/admin/pipeline/prompts" element={<AdminPrompts />} />
         <Route path="/admin/seo" element={<AdminSeo />} />
       </Route>
     </Routes>
