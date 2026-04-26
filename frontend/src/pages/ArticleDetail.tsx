@@ -2,10 +2,25 @@ import { useParams, Link } from 'react-router-dom'
 import { Helmet } from 'react-helmet-async'
 import { format, formatDistanceToNow } from 'date-fns'
 import { useArticle } from '../hooks/useArticles'
-import TopicBadge from '../components/ui/TopicBadge'
 import Spinner from '../components/ui/Spinner'
 import AIDisclosure from '../components/ui/AIDisclosure'
 import NewsletterSignup from '../components/ui/NewsletterSignup'
+
+const TOPIC_LABELS: Record<string, string> = {
+  research: 'Research',
+  products: 'Products',
+  policy: 'Policy',
+  business: 'Business',
+  safety: 'Safety',
+  open_source: 'Open Source',
+  tools: 'Tools',
+  agents: 'Agents',
+}
+
+function readingTime(text: string): number {
+  const words = (text || '').trim().split(/\s+/).filter(Boolean).length
+  return Math.max(1, Math.round(words / 220))  // 220 wpm
+}
 
 export default function ArticleDetail() {
   const { id } = useParams<{ id: string }>()
@@ -15,9 +30,16 @@ export default function ArticleDetail() {
   if (error || !article) return <p className="py-10 text-center text-red-500">Article not found.</p>
 
   const paragraphs = article.summary?.split('\n').filter(Boolean) ?? []
+  const lead = paragraphs[0]
+  const rest = paragraphs.slice(1)
   const pageTitle = `${article.title} — Daily AI Bird`
   const description = paragraphs[0]?.slice(0, 160) ?? article.title
   const canonical = `https://dailyaibird.com/articles/${article.id}`
+  const minutes = readingTime(article.summary || '')
+  const topicLabel = article.topic ? (TOPIC_LABELS[article.topic] ?? article.topic.replace('_', ' ')) : null
+
+  let sourceHost = ''
+  try { sourceHost = new URL(article.source.url).hostname.replace('www.', '') } catch { /* noop */ }
 
   const newsArticleJsonLd = {
     '@context': 'https://schema.org',
@@ -27,7 +49,9 @@ export default function ArticleDetail() {
     image: article.image_url ? [article.image_url] : [],
     datePublished: article.published_at,
     dateModified: article.published_at,
-    author: article.author ? [{ '@type': 'Person', name: article.author }] : [{ '@type': 'Organization', name: article.source.name }],
+    author: article.author
+      ? [{ '@type': 'Person', name: article.author }]
+      : [{ '@type': 'Organization', name: article.source.name }],
     publisher: {
       '@type': 'Organization',
       name: 'Daily AI Bird',
@@ -39,8 +63,8 @@ export default function ArticleDetail() {
     articleBody: article.summary || description,
     inLanguage: 'en',
     isAccessibleForFree: true,
-    isBasedOn: article.url,  // tells Google this is a derived/synthesised piece
-    articleSection: article.topic ? article.topic.replace('_', ' ') : undefined,
+    isBasedOn: article.url,
+    articleSection: topicLabel ?? undefined,
     keywords: Array.isArray(article.tags) ? article.tags.join(', ') : undefined,
   }
 
@@ -49,13 +73,13 @@ export default function ArticleDetail() {
     '@type': 'BreadcrumbList',
     itemListElement: [
       { '@type': 'ListItem', position: 1, name: 'Home', item: 'https://dailyaibird.com' },
-      ...(article.topic ? [{ '@type': 'ListItem', position: 2, name: article.topic.replace('_', ' '), item: `https://dailyaibird.com/?topic=${article.topic}` }] : []),
+      ...(article.topic ? [{ '@type': 'ListItem', position: 2, name: topicLabel, item: `https://dailyaibird.com/?topic=${article.topic}` }] : []),
       { '@type': 'ListItem', position: article.topic ? 3 : 2, name: article.title, item: canonical },
     ],
   }
 
   return (
-    <div className="mx-auto max-w-2xl">
+    <article className="mx-auto max-w-reading fade-in-up">
       <Helmet>
         <title>{pageTitle}</title>
         <meta name="description" content={description} />
@@ -72,91 +96,80 @@ export default function ArticleDetail() {
         <script type="application/ld+json">{JSON.stringify(newsArticleJsonLd)}</script>
         <script type="application/ld+json">{JSON.stringify(breadcrumbJsonLd)}</script>
       </Helmet>
-      {/* Breadcrumb */}
-      <nav className="mb-6 flex flex-wrap items-center gap-1 text-sm text-gray-400">
-        <Link to="/" className="hover:text-gray-600 transition-colors">Home</Link>
-        <span>›</span>
+
+      {/* Breadcrumb (subtle, mono) */}
+      <nav className="mb-8 flex flex-wrap items-center gap-1.5 font-mono text-[11px] uppercase tracking-[0.14em] text-ink-400">
+        <Link to="/" className="hover:text-ink transition-colors">Home</Link>
+        <span>/</span>
         {article.topic && (
           <>
-            <Link to={`/?topic=${article.topic}`} className="hover:text-gray-600 transition-colors capitalize">
-              {article.topic.replace('_', ' ')}
+            <Link to={`/?topic=${article.topic}`} className="hover:text-ink transition-colors">
+              {topicLabel}
             </Link>
-            <span>›</span>
+            <span>/</span>
           </>
         )}
-        <span className="text-gray-500 line-clamp-1 max-w-[300px]">{article.title}</span>
+        <span className="text-ink-500 line-clamp-1 max-w-[280px] normal-case tracking-normal text-[12px]">
+          {article.title}
+        </span>
       </nav>
 
-      {/* Hero image */}
-      {article.image_url && (
-        <div className="mb-8 overflow-hidden rounded-2xl shadow-lg">
-          <img
-            src={article.image_url}
-            alt={article.title}
-            className="w-full object-cover max-h-[420px]"
-            onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none' }}
-          />
-        </div>
-      )}
-
-      {/* Topic + sentiment */}
-      <div className="mb-4 flex flex-wrap gap-2">
-        {article.topic && <TopicBadge topic={article.topic} />}
+      {/* Topic eyebrow + reading time */}
+      <p className="mb-3 font-mono text-[11px] uppercase tracking-[0.18em] text-brand-600">
+        {topicLabel ?? 'AI'}
+        <span className="ml-2 text-ink-400">· {minutes} min read</span>
+        {article.is_featured && <span className="ml-2 text-accent-700">· Featured</span>}
         {article.momentum_score >= 3 && (
-          <span
-            title={`${article.momentum_score} sources are covering this story — it's trending`}
-            className="rounded-full bg-rose-100 px-2.5 py-0.5 text-xs font-bold text-rose-600 cursor-help"
-          >
-            🔥 {article.momentum_score} sources covering this
-          </span>
+          <span className="ml-2 text-accent-700">· {article.momentum_score} sources</span>
         )}
-        {article.sentiment && (
-          <span
-            title={`Sentiment: ${article.sentiment} — assessed by AI based on article tone`}
-            className={`rounded-full px-2.5 py-0.5 text-xs font-medium capitalize cursor-help ${
-              article.sentiment === 'positive' ? 'bg-green-100 text-green-700'
-              : article.sentiment === 'negative' ? 'bg-red-100 text-red-700'
-              : 'bg-gray-100 text-gray-500'
-            }`}
-          >
-            {article.sentiment}
-          </span>
-        )}
-      </div>
+      </p>
 
-      {/* Title */}
-      <h1 className="mb-5 text-3xl font-extrabold leading-tight tracking-tight text-gray-950 lg:text-4xl">
+      {/* Title — serif, semibold */}
+      <h1 className="font-serif text-3xl md:text-[2.5rem] font-semibold leading-[1.15] tracking-tight text-ink">
         {article.title}
       </h1>
 
+      {/* Standfirst (lead paragraph as drop-in deck) */}
+      {lead && (
+        <p className="mt-6 font-serif text-[19px] leading-[1.55] text-ink-700">
+          {lead}
+        </p>
+      )}
+
       {/* Byline / meta row */}
-      <div className="mb-6 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-sm text-gray-500">
+      <div className="mt-6 flex flex-wrap items-center gap-x-4 gap-y-1.5 border-y border-paper-200 py-4 text-[13px] text-ink-500">
         <span className="flex items-center gap-1.5">
-          <span className="text-[10px] font-bold tracking-widest text-gray-400 uppercase">Source</span>
+          {sourceHost && (
+            <img
+              src={`https://www.google.com/s2/favicons?domain=${sourceHost}&sz=32`}
+              alt=""
+              aria-hidden
+              className="h-3.5 w-3.5 rounded-sm"
+              onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none' }}
+            />
+          )}
+          <span className="text-ink-500">via</span>
           <a
             href={article.source.url}
             target="_blank"
             rel="noopener noreferrer"
-            className="font-semibold text-gray-800 hover:text-brand-600 transition-colors"
+            className="font-medium text-ink hover:text-brand-700 underline-grow"
           >
-            {article.source.name} ↗
+            {article.source.name}
           </a>
         </span>
         {article.author && (
           <>
-            <span className="text-gray-300">·</span>
-            <span className="flex items-center gap-1.5">
-              <span className="text-[10px] font-bold tracking-widest text-gray-400 uppercase">By</span>
-              <span className="text-gray-700">{article.author}</span>
-            </span>
+            <span className="text-ink-300">·</span>
+            <span>by {article.author}</span>
           </>
         )}
         {article.published_at && (
           <>
-            <span className="text-gray-300">·</span>
-            <time dateTime={article.published_at} className="text-gray-500">
+            <span className="text-ink-300">·</span>
+            <time dateTime={article.published_at} className="font-mono text-[12px]">
               {format(new Date(article.published_at), 'MMM d, yyyy')}
-              <span className="ml-1 text-gray-400">
+              <span className="ml-1 text-ink-400">
                 ({formatDistanceToNow(new Date(article.published_at), { addSuffix: true })})
               </span>
             </time>
@@ -164,32 +177,35 @@ export default function ArticleDetail() {
         )}
       </div>
 
-      {/* AI disclosure */}
-      <div className="mb-6">
-        <AIDisclosure />
-      </div>
+      {/* Hero image — under byline (Stratechery / MIT TR pattern) */}
+      {article.image_url && (
+        <div className="mt-8 overflow-hidden rounded-md">
+          <img
+            src={article.image_url}
+            alt={article.title}
+            className="w-full object-cover max-h-[460px]"
+            onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none' }}
+          />
+        </div>
+      )}
 
-      {/* Summary body */}
-      {paragraphs.length > 0 && (
-        <div className="mb-10 space-y-5 border-t border-gray-100 pt-6">
-          {paragraphs.map((p, i) => (
-            <p key={i} className={`leading-relaxed text-gray-700 ${
-              i === 0 ? 'text-xl font-medium text-gray-900' : 'text-lg'
-            }`}>
-              {p}
-            </p>
-          ))}
+      {/* Body — serif prose */}
+      {rest.length > 0 && (
+        <div className="prose prose-lg max-w-none mt-8
+                        prose-p:font-serif prose-p:text-[18px] prose-p:leading-[1.7] prose-p:text-ink-700
+                        prose-headings:font-serif prose-a:text-brand-700">
+          {rest.map((p, i) => <p key={i}>{p}</p>)}
         </div>
       )}
 
       {/* Tags */}
       {article.tags.length > 0 && (
-        <div className="mb-8 flex flex-wrap gap-2">
+        <div className="mt-8 flex flex-wrap gap-1.5">
           {article.tags.map((tag) => (
             <Link
               key={tag}
               to={`/?q=${tag}`}
-              className="rounded-full bg-gray-100 px-3 py-1 text-xs text-gray-500 hover:bg-gray-200 hover:text-gray-700 transition"
+              className="font-mono text-[11px] uppercase tracking-wider text-ink-500 hover:text-brand-700 transition border-b border-paper-200 hover:border-brand-300 pb-px"
             >
               #{tag}
             </Link>
@@ -197,19 +213,29 @@ export default function ArticleDetail() {
         </div>
       )}
 
+      {/* AI disclosure — AFTER body, not before */}
+      <div className="mt-10">
+        <AIDisclosure />
+      </div>
+
       {/* Read Original CTA */}
-      <div className="mb-8 rounded-xl border border-gray-100 bg-gray-50 px-5 py-4 flex items-center justify-between gap-4">
+      <div className="mt-8 rounded-md border border-paper-200 bg-paper-50 px-5 py-5 flex items-center justify-between gap-4">
         <div>
-          <p className="text-xs font-semibold text-gray-700">Read the full story at {article.source.name}</p>
-          <p className="text-[11px] text-gray-400 mt-0.5">
-            This is an AI-assisted summary · original reporting by {article.source.name}
+          <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-brand-600 mb-1">
+            Original Reporting
+          </p>
+          <p className="font-serif text-[16px] text-ink">
+            Read the full story at <span className="font-semibold">{article.source.name}</span>
+          </p>
+          <p className="text-[12px] text-ink-500 mt-1">
+            This is an AI-assisted summary · facts verified against the source
           </p>
         </div>
         <a
           href={article.url}
           target="_blank"
           rel="noopener noreferrer"
-          className="shrink-0 rounded-lg border border-brand-200 bg-white px-4 py-2 text-sm font-semibold text-brand-600 hover:bg-brand-50 hover:border-brand-400 transition-colors"
+          className="shrink-0 rounded-md bg-ink px-4 py-2.5 text-[13px] font-semibold text-paper hover:bg-brand-700 transition-colors whitespace-nowrap"
         >
           Read Original →
         </a>
@@ -217,31 +243,31 @@ export default function ArticleDetail() {
 
       {/* Added to Daily AI Bird timestamp */}
       {article.approved_at && (
-        <p className="mb-8 text-xs text-gray-400 text-center border-t border-gray-100 pt-5">
-          Added to Daily AI Bird on{' '}
-          <span className="font-medium text-brand-600">
+        <p className="mt-6 font-mono text-[11px] uppercase tracking-[0.14em] text-ink-400 text-center">
+          Added{' '}
+          <time dateTime={article.approved_at}>
             {format(new Date(article.approved_at), 'MMM d, yyyy · HH:mm')}
-          </span>
+          </time>
         </p>
       )}
 
       {/* Newsletter signup */}
-      <div className="mb-8">
+      <div className="mt-12">
         <NewsletterSignup />
       </div>
 
       {/* Back + report row */}
-      <div className="flex items-center justify-between">
-        <Link to="/" className="inline-flex items-center gap-1.5 text-sm text-gray-400 hover:text-gray-700 transition">
+      <div className="mt-12 flex items-center justify-between">
+        <Link to="/" className="font-mono text-[11px] uppercase tracking-[0.14em] text-ink-500 hover:text-ink transition">
           ← Back to feed
         </Link>
         <a
           href={`mailto:corrections@dailyaibird.com?subject=Error report: ${encodeURIComponent(article.title)}&body=Article URL: ${encodeURIComponent(article.url)}%0A%0AError description:%0A`}
-          className="text-xs text-gray-400 hover:text-gray-600 transition underline underline-offset-2"
+          className="font-mono text-[11px] uppercase tracking-[0.14em] text-ink-400 hover:text-ink transition underline-grow"
         >
           Report an error
         </a>
       </div>
-    </div>
+    </article>
   )
 }

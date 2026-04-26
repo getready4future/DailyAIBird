@@ -24,35 +24,43 @@ export default function ArticleFilters() {
   }
 
   return (
-    <div className="mb-6 space-y-3">
-      <div className="flex flex-wrap gap-2">
+    <div className="mb-8 border-b border-paper-200 pb-4">
+      <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
+        <span className="eyebrow shrink-0">Topics</span>
         {TOPICS.map((t) => (
           <button
             key={t}
             onClick={() => setTopic(t)}
-            className={`rounded-full px-3 py-1 text-sm font-medium transition ${
+            className={`font-mono text-[11px] uppercase tracking-[0.14em] transition pb-px border-b ${
               activeTopic === t
-                ? 'bg-brand-600 text-white'
-                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                ? 'text-brand-700 border-brand-500'
+                : 'text-ink-500 border-transparent hover:text-ink hover:border-paper-300'
             }`}
           >
             {topicLabel(t)}
           </button>
         ))}
         {activeTopic && (
-          <button onClick={() => setTopic('')} className="rounded-full bg-red-50 px-3 py-1 text-sm text-red-600 hover:bg-red-100">
-            Clear
+          <button
+            onClick={() => setTopic('')}
+            className="font-mono text-[11px] uppercase tracking-[0.14em] text-ink-400 hover:text-ink transition"
+          >
+            × Clear
           </button>
         )}
       </div>
 
-      <div className="flex items-center gap-2 text-sm text-gray-500">
-        <span>Sort:</span>
+      <div className="mt-3 flex items-center gap-4 text-[12px] text-ink-500">
+        <span className="font-mono text-[11px] uppercase tracking-[0.14em]">Sort</span>
         {['relevance', 'date'].map((s) => (
           <button
             key={s}
             onClick={() => setSort(s)}
-            className={`capitalize underline-offset-2 ${activeSort === s ? 'font-semibold text-brand-600 underline' : 'hover:text-gray-700'}`}
+            className={`capitalize transition ${
+              activeSort === s
+                ? 'font-semibold text-ink underline underline-offset-4 decoration-brand-500 decoration-2'
+                : 'text-ink-500 hover:text-ink'
+            }`}
           >
             {s}
           </button>

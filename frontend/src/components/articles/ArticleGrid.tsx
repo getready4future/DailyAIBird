@@ -4,51 +4,57 @@ import EmptyState from '../ui/EmptyState'
 
 function SectionLabel({ text }: { text: string }) {
   return (
-    <div className="flex items-center gap-3 mb-4">
-      <span className="text-[11px] font-bold tracking-widest text-brand-600 uppercase">{text}</span>
-      <div className="flex-1 h-px bg-brand-100" />
+    <div className="flex items-baseline gap-3 mb-6">
+      <span className="eyebrow">{text}</span>
+      <div className="flex-1 h-px bg-paper-200" />
     </div>
   )
 }
 
 export default function ArticleGrid({ articles }: { articles: Article[] }) {
-  if (articles.length === 0) return <EmptyState message="No articles found." />
+  if (articles.length === 0) {
+    return <EmptyState message="Nothing here yet." hint="Check back in a few hours — new stories every six." />
+  }
 
   if (articles.length < 3) {
     return (
-      <div className="grid gap-5 sm:grid-cols-2">
+      <div className="grid gap-8 sm:grid-cols-2">
         {articles.map((a) => <ArticleCard key={a.id} article={a} variant="large" />)}
       </div>
     )
   }
 
   const [hero, ...rest] = articles
-  const sidebar = rest.slice(0, 2)
-  const remaining = rest.slice(2)
+  const sidebar = rest.slice(0, 3)
+  const remaining = rest.slice(3)
 
   return (
-    <div className="space-y-8">
-      {/* Lead story row */}
-      <div>
+    <div className="space-y-12">
+      {/* Lead story + text-list sidebar (Verge / NYT pattern) */}
+      <section>
         <SectionLabel text="Lead Story" />
-        <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
-          <div className="lg:col-span-2 h-full">
+        <div className="grid grid-cols-1 gap-8 lg:grid-cols-12">
+          <div className="lg:col-span-8">
             <ArticleCard article={hero} variant="hero" />
           </div>
-          <div className="flex flex-col gap-5">
-            {sidebar.map((a) => <ArticleCard key={a.id} article={a} variant="large" />)}
-          </div>
+          <aside className="lg:col-span-4 flex flex-col divide-y divide-paper-200">
+            {sidebar.map((a) => (
+              <ArticleCard key={a.id} article={a} variant="text-list" />
+            ))}
+          </aside>
         </div>
-      </div>
+      </section>
 
-      {/* Remaining articles */}
+      {/* Latest grid */}
       {remaining.length > 0 && (
-        <div>
-          <SectionLabel text="Latest News" />
-          <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
-            {remaining.map((a) => <ArticleCard key={a.id} article={a} variant="default" />)}
+        <section>
+          <SectionLabel text="Latest" />
+          <div className="grid grid-cols-1 gap-x-8 gap-y-10 sm:grid-cols-2 lg:grid-cols-3">
+            {remaining.map((a) => (
+              <ArticleCard key={a.id} article={a} variant="default" />
+            ))}
           </div>
-        </div>
+        </section>
       )}
     </div>
   )

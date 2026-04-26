@@ -1,10 +1,12 @@
 import { useSearchParams } from 'react-router-dom'
 import { Helmet } from 'react-helmet-async'
+import { format } from 'date-fns'
 import { useArticles } from '../hooks/useArticles'
 import ArticleGrid from '../components/articles/ArticleGrid'
 import ArticleFilters from '../components/articles/ArticleFilters'
 import { topicLabel } from '../components/ui/TopicBadge'
-import Spinner from '../components/ui/Spinner'
+import { ArticleGridSkeleton } from '../components/ui/Skeleton'
+import NewsletterSignup from '../components/ui/NewsletterSignup'
 
 export default function Home() {
   const [params, setParams] = useSearchParams()
@@ -30,8 +32,10 @@ export default function Home() {
     ? `The latest ${topicLabel(topic)} AI news, summarised and scored by relevance.`
     : 'The most important AI news of the day — surfaced, summarised, and scored. Updated continuously.'
 
+  const today = format(new Date(), 'EEEE, MMMM d')
+
   return (
-    <div>
+    <div className="fade-in-up">
       <Helmet>
         <title>{pageTitle}</title>
         <meta name="description" content={description} />
@@ -42,39 +46,33 @@ export default function Home() {
         {page > 1 && <link rel="prev" href={`https://dailyaibird.com/?page=${page - 1}${topic ? `&topic=${topic}` : ''}`} />}
         {data?.has_next && <link rel="next" href={`https://dailyaibird.com/?page=${page + 1}${topic ? `&topic=${topic}` : ''}`} />}
       </Helmet>
-      {/* Page header */}
-      <div className="mb-6 border-b border-gray-100 pb-5">
-        <div className="flex items-end justify-between gap-4">
+
+      {/* Editorial masthead */}
+      <header className="mb-10 border-b border-paper-200 pb-6">
+        <div className="flex flex-wrap items-end justify-between gap-4">
           <div>
-            <div className="mb-2 flex flex-wrap items-center gap-2">
-              <span className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-0.5 text-[10px] font-bold tracking-wide text-amber-700 uppercase">
-                🤖 AI-Assisted
-              </span>
-              <span className="rounded-full border border-green-200 bg-green-50 px-2.5 py-0.5 text-[10px] font-bold tracking-wide text-green-700 uppercase">
-                ✓ Editor-Reviewed
-              </span>
-            </div>
-            <h1 className="text-3xl font-extrabold tracking-tight text-gray-950">
-              {topic ? `${topicLabel(topic)} News` : "Today's AI News"}
+            <p className="eyebrow mb-2">{today}</p>
+            <h1 className="font-serif text-4xl md:text-5xl font-semibold tracking-tight text-ink leading-[1.05]">
+              {topic ? `${topicLabel(topic)}` : "Today's AI News"}
             </h1>
-            <p className="mt-1 text-sm text-gray-400">
-              Surfaced, summarised, and scored by AI · reviewed by humans
+            <p className="mt-3 max-w-prose text-[15px] leading-relaxed text-ink-500">
+              {topic
+                ? `The latest in ${topicLabel(topic)}. Curated and summarised by AI, reviewed by humans.`
+                : "The day's signal in 5 minutes. Curated by AI, reviewed by humans — no hype, no ads."}
             </p>
           </div>
           {data && (
-            <span className="shrink-0 rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-gray-500">
-              {data.total} stories
+            <span className="font-mono text-[11px] uppercase tracking-[0.18em] text-ink-400 shrink-0">
+              {data.total} {data.total === 1 ? 'story' : 'stories'}
             </span>
           )}
         </div>
-      </div>
+      </header>
 
-      <div className="mb-7">
-        <ArticleFilters />
-      </div>
+      <ArticleFilters />
 
       {isLoading ? (
-        <div className="flex justify-center py-24"><Spinner size="lg" /></div>
+        <ArticleGridSkeleton count={9} />
       ) : error ? (
         <p className="py-10 text-center text-red-500">Failed to load articles.</p>
       ) : (
@@ -82,36 +80,43 @@ export default function Home() {
           <ArticleGrid articles={data?.items ?? []} />
 
           {showPagination && (
-            <div className="mt-12 flex items-center justify-center gap-3">
+            <nav className="mt-16 flex items-center justify-center gap-3">
               {page > 1 ? (
                 <a
                   href={`/?page=${page - 1}${topic ? `&topic=${topic}` : ''}`}
                   onClick={(e) => { e.preventDefault(); setPage(page - 1) }}
-                  className="rounded-full border border-gray-200 px-5 py-2 text-sm font-medium text-gray-600 hover:border-gray-400 transition"
+                  className="rounded-md border border-paper-300 px-5 py-2 font-mono text-[12px] uppercase tracking-[0.14em] text-ink-500 hover:border-ink hover:text-ink transition"
                 >
                   ← Previous
                 </a>
               ) : (
-                <span className="rounded-full border border-gray-200 px-5 py-2 text-sm font-medium text-gray-300 cursor-not-allowed">
+                <span className="rounded-md border border-paper-200 px-5 py-2 font-mono text-[12px] uppercase tracking-[0.14em] text-ink-300 cursor-not-allowed">
                   ← Previous
                 </span>
               )}
-              <span className="rounded-full bg-gray-100 px-4 py-2 text-sm font-semibold text-gray-700">
-                {page}
+              <span className="font-mono text-[12px] tabular-nums text-ink-500">
+                Page {page}
               </span>
               {data.has_next ? (
                 <a
                   href={`/?page=${page + 1}${topic ? `&topic=${topic}` : ''}`}
                   onClick={(e) => { e.preventDefault(); setPage(page + 1) }}
-                  className="rounded-full border border-gray-200 px-5 py-2 text-sm font-medium text-gray-600 hover:border-gray-400 transition"
+                  className="rounded-md border border-paper-300 px-5 py-2 font-mono text-[12px] uppercase tracking-[0.14em] text-ink-500 hover:border-ink hover:text-ink transition"
                 >
                   Next →
                 </a>
               ) : (
-                <span className="rounded-full border border-gray-200 px-5 py-2 text-sm font-medium text-gray-300 cursor-not-allowed">
+                <span className="rounded-md border border-paper-200 px-5 py-2 font-mono text-[12px] uppercase tracking-[0.14em] text-ink-300 cursor-not-allowed">
                   Next →
                 </span>
               )}
+            </nav>
+          )}
+
+          {/* Newsletter banner — high-conversion moment, after first scroll */}
+          {!isLoading && (data?.items.length ?? 0) > 0 && (
+            <div className="mt-20">
+              <NewsletterSignup variant="banner" />
             </div>
           )}
         </>

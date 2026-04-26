@@ -2,13 +2,80 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Editorial design system — light + dark via CSS variables */
 @layer base {
+  :root {
+    --bg:        #FBFAF7;  /* paper */
+    --bg-muted:  #F6F4EE;  /* paper.100 */
+    --fg:        #161513;  /* ink */
+    --fg-muted:  #5A554D;  /* ink.500 */
+    --rule:      #EDEAE0;  /* paper.200 */
+    --accent:    #1F7773;  /* brand.500 */
+  }
+  .dark {
+    --bg:        #0E1413;
+    --bg-muted:  #161D1C;
+    --fg:        #ECE9E2;
+    --fg-muted:  #9A9690;
+    --rule:      #232B2A;
+    --accent:    #3F8F8B;
+  }
+
+  html {
+    background: var(--bg);
+  }
+
   body {
-    @apply text-gray-900 antialiased;
-    font-feature-settings: "kern" 1, "liga" 1;
+    background: var(--bg);
+    color: var(--fg);
+    @apply antialiased font-sans;
+    font-feature-settings: "kern" 1, "liga" 1, "ss01" 1;
   }
 
   p {
     @apply leading-relaxed;
+  }
+
+  hr, .rule {
+    border-color: var(--rule);
+  }
+
+  ::selection {
+    background: theme('colors.brand.100');
+    color: theme('colors.brand.900');
+  }
+}
+
+@layer utilities {
+  /* Editorial underline that grows on hover */
+  .underline-grow {
+    background-image: linear-gradient(theme('colors.brand.500'), theme('colors.brand.500'));
+    background-size: 0% 1px;
+    background-repeat: no-repeat;
+    background-position: 0 100%;
+    transition: background-size 280ms cubic-bezier(0.2, 0.6, 0.2, 1);
+  }
+  .underline-grow:hover {
+    background-size: 100% 1px;
+  }
+
+  /* Subtle fade-in-up for first-paint elements */
+  .fade-in-up {
+    animation: fadeInUp 400ms cubic-bezier(0.2, 0.6, 0.2, 1) both;
+  }
+  @keyframes fadeInUp {
+    from { opacity: 0; transform: translateY(8px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  /* Micro-eyebrow — used for topic/section labels */
+  .eyebrow {
+    @apply font-mono text-[11px] uppercase tracking-[0.18em] text-brand-600;
+  }
+
+  /* Dotted-grid texture for image fallbacks */
+  .bg-dot-grid {
+    background-image: radial-gradient(circle, rgba(255, 255, 255, 0.18) 1px, transparent 1px);
+    background-size: 14px 14px;
   }
 }

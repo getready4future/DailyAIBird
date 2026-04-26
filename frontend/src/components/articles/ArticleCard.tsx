@@ -1,51 +1,80 @@
 import { Link } from 'react-router-dom'
-import { formatDistanceToNow, format } from 'date-fns'
+import { formatDistanceToNow } from 'date-fns'
 import type { Article } from '../../types'
-import TopicBadge from '../ui/TopicBadge'
 
-type Variant = 'hero' | 'large' | 'default'
+type Variant = 'hero' | 'large' | 'default' | 'text-list'
 
 const TOPIC_GRADIENTS: Record<string, string> = {
-  research:    'from-violet-600 to-indigo-700',
-  products:    'from-blue-600 to-cyan-700',
-  policy:      'from-slate-600 to-gray-700',
-  business:    'from-emerald-600 to-teal-700',
-  safety:      'from-amber-600 to-orange-700',
-  open_source: 'from-green-600 to-emerald-700',
-  tools:       'from-sky-600 to-blue-700',
-  agents:      'from-purple-600 to-violet-700',
+  research:    'from-brand-700 to-ink',
+  products:    'from-brand-600 to-brand-900',
+  policy:      'from-ink-700 to-ink',
+  business:    'from-brand-500 to-brand-800',
+  safety:      'from-accent-500 to-accent-700',
+  open_source: 'from-brand-400 to-brand-700',
+  tools:       'from-brand-500 to-brand-800',
+  agents:      'from-brand-600 to-ink',
 }
 
-function TopicGradient({ topic, height = 'h-40' }: { topic?: string | null; height?: string }) {
-  const grad = (topic && TOPIC_GRADIENTS[topic]) || 'from-brand-600 to-brand-900'
+const TOPIC_LABELS: Record<string, string> = {
+  research: 'Research',
+  products: 'Products',
+  policy: 'Policy',
+  business: 'Business',
+  safety: 'Safety',
+  open_source: 'Open Source',
+  tools: 'Tools',
+  agents: 'Agents',
+}
+
+function TopicEyebrow({ topic, momentum }: { topic?: string | null; momentum?: number }) {
+  const label = topic ? (TOPIC_LABELS[topic] ?? topic.replace('_', ' ')) : 'AI'
   return (
-    <div className={`${height} w-full bg-gradient-to-br ${grad} flex items-center justify-center`}>
-      <span className="text-3xl opacity-30">🐦</span>
+    <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-brand-600">
+      {label}
+      {momentum && momentum >= 3 && (
+        <span className="ml-2 text-accent-700">· {momentum} sources</span>
+      )}
+    </p>
+  )
+}
+
+function TopicTexture({ topic, height = 'h-40' }: { topic?: string | null; height?: string }) {
+  const grad = (topic && TOPIC_GRADIENTS[topic]) || 'from-brand-700 to-ink'
+  return (
+    <div className={`relative ${height} w-full bg-gradient-to-br ${grad} overflow-hidden`}>
+      <div className="absolute inset-0 bg-dot-grid opacity-60" />
+      <span className="absolute bottom-3 left-4 font-mono text-[10px] uppercase tracking-[0.2em] text-paper/70">
+        {topic ?? 'ai'}
+      </span>
     </div>
   )
 }
 
-function TimeAgo({ date }: { date: string | null }) {
-  if (!date) return null
-  return <span>{formatDistanceToNow(new Date(date), { addSuffix: true })}</span>
-}
-
-function DualTimestamp({ article }: { article: Article }) {
-  const sourceDate = article.published_at
-    ? formatDistanceToNow(new Date(article.published_at), { addSuffix: true })
-    : null
-  const addedDate = article.approved_at
-    ? format(new Date(article.approved_at), 'MMM d, HH:mm')
-    : null
-
+function SourceLine({ article }: { article: Article }) {
+  let host = ''
+  try { host = new URL(article.source.url).hostname.replace('www.', '') } catch { /* noop */ }
   return (
-    <div className="flex flex-wrap items-center gap-1.5 text-xs text-gray-400">
-      {sourceDate && <span>{sourceDate}</span>}
-      {sourceDate && addedDate && <span className="text-gray-600">·</span>}
-      {addedDate && (
-        <span className="rounded bg-brand-100 px-1.5 py-0.5 text-brand-700 text-[10px] font-medium">
-          Added {addedDate}
-        </span>
+    <div className="flex items-center gap-1.5 text-[12px] text-ink-500">
+      {host && (
+        <img
+          src={`https://www.google.com/s2/favicons?domain=${host}&sz=32`}
+          alt=""
+          aria-hidden
+          loading="lazy"
+          className="h-3.5 w-3.5 rounded-sm shrink-0"
+          onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none' }}
+        />
+      )}
+      <span className="font-mono text-[11px] uppercase tracking-wider text-ink-500">
+        {article.source.name}
+      </span>
+      {article.published_at && (
+        <>
+          <span className="text-ink-300">·</span>
+          <span className="text-[11px] text-ink-400">
+            {formatDistanceToNow(new Date(article.published_at), { addSuffix: true })}
+          </span>
+        </>
       )}
     </div>
   )
@@ -56,57 +85,59 @@ function HeroCard({ article }: { article: Article }) {
   return (
     <Link
       to={`/articles/${article.id}`}
-      className="group relative block h-full min-h-[460px] overflow-hidden rounded-2xl"
+      className="group relative block h-full min-h-[360px] sm:min-h-[420px] overflow-hidden rounded-md"
     >
       {article.image_url ? (
         <img
           src={article.image_url}
           alt={article.title}
-          className="absolute inset-0 h-full w-full object-cover transition duration-700 group-hover:scale-105"
+          className="absolute inset-0 h-full w-full object-cover transition duration-700 group-hover:scale-[1.03]"
           loading="lazy"
           onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none' }}
         />
-      ) : null}
-      <div className={`absolute inset-0 bg-gradient-to-br ${
-        (article.topic && TOPIC_GRADIENTS[article.topic]) || 'from-brand-700 to-gray-950'
-      } ${article.image_url ? 'opacity-0' : 'opacity-100'}`} />
+      ) : (
+        <TopicTexture topic={article.topic} height="absolute inset-0 h-full" />
+      )}
 
-      {/* deep gradient overlay */}
-      <div className="absolute inset-0 bg-gradient-to-t from-black/95 via-black/40 to-transparent" />
+      {/* Deep gradient overlay for legibility */}
+      <div className="absolute inset-0 bg-gradient-to-t from-ink/95 via-ink/40 to-transparent" />
 
-      {/* top badges */}
-      <div className="absolute left-4 top-4 flex items-center gap-2">
-        {article.is_featured && (
-          <span className="rounded-full bg-amber-400 px-2.5 py-0.5 text-xs font-bold tracking-wide text-amber-900 uppercase">
-            ★ Featured
-          </span>
-        )}
-        {article.momentum_score >= 3 && (
-          <span className="rounded-full bg-rose-500/90 px-2.5 py-0.5 text-xs font-bold text-white">
-            🔥 {article.momentum_score} sources
-          </span>
-        )}
-        {article.topic && <TopicBadge topic={article.topic} />}
-      </div>
-
-      {/* content block */}
-      <div className="absolute bottom-0 left-0 right-0 p-6">
-        <div className="mb-2.5 flex items-center gap-2 text-xs text-gray-300">
-          <span className="font-semibold text-white">{article.source.name}</span>
-          <span className="text-gray-600">·</span>
-          <TimeAgo date={article.published_at} />
+      {/* Featured ribbon (top-left) */}
+      {article.is_featured && (
+        <div className="absolute left-5 top-5 font-mono text-[10px] uppercase tracking-[0.18em] text-accent-400">
+          ★ Featured
         </div>
-        <h2 className="mb-3 text-2xl font-extrabold leading-tight text-white line-clamp-3 group-hover:text-brand-100 transition-colors lg:text-3xl">
+      )}
+
+      {/* Content (bottom) */}
+      <div className="absolute bottom-0 left-0 right-0 p-6 sm:p-8">
+        <p className="mb-3 font-mono text-[10px] uppercase tracking-[0.18em] text-brand-200">
+          {article.topic ? (TOPIC_LABELS[article.topic] ?? article.topic) : 'AI'}
+          {article.momentum_score >= 3 && (
+            <span className="ml-2 text-accent-400">· {article.momentum_score} sources</span>
+          )}
+        </p>
+        <h2 className="mb-3 font-serif text-2xl sm:text-3xl lg:text-[2.25rem] font-semibold leading-[1.1] tracking-tight text-paper">
           {article.title}
         </h2>
         {article.summary && (
-          <p className="mb-3 text-sm leading-relaxed text-gray-300 line-clamp-2">{article.summary}</p>
+          <p className="mb-3 font-serif text-[15px] leading-[1.55] text-paper/80 line-clamp-2">
+            {article.summary}
+          </p>
         )}
-        {article.approved_at && (
-          <span className="inline-block rounded bg-brand-100 px-2 py-0.5 text-[10px] font-medium text-brand-700">
-            Added {format(new Date(article.approved_at), 'MMM d, HH:mm')}
+        <div className="flex items-center gap-1.5 text-[12px] text-paper/60">
+          <span className="font-mono text-[11px] uppercase tracking-wider text-paper/70">
+            {article.source.name}
           </span>
-        )}
+          {article.published_at && (
+            <>
+              <span className="text-paper/40">·</span>
+              <span className="text-[11px] text-paper/60">
+                {formatDistanceToNow(new Date(article.published_at), { addSuffix: true })}
+              </span>
+            </>
+          )}
+        </div>
       </div>
     </Link>
   )
@@ -115,13 +146,13 @@ function HeroCard({ article }: { article: Article }) {
 // ── Large card ────────────────────────────────────────────────────────────────
 function LargeCard({ article }: { article: Article }) {
   return (
-    <div className="group flex flex-col overflow-hidden rounded-xl border border-gray-100 bg-white shadow-sm hover:shadow-lg transition-all duration-300 h-full">
-      <Link to={`/articles/${article.id}`} className="block overflow-hidden relative">
+    <article className="group flex flex-col h-full">
+      <Link to={`/articles/${article.id}`} className="block overflow-hidden rounded-md mb-4">
         {article.image_url ? (
           <img
             src={article.image_url}
             alt={article.title}
-            className="h-52 w-full object-cover transition duration-500 group-hover:scale-105"
+            className="aspect-[16/10] w-full object-cover transition duration-500 group-hover:scale-[1.02]"
             loading="lazy"
             onError={(e) => {
               const img = e.currentTarget as HTMLImageElement
@@ -130,57 +161,40 @@ function LargeCard({ article }: { article: Article }) {
             }}
           />
         ) : null}
-        <div className={`${article.image_url ? 'hidden' : ''}`}>
-          <TopicGradient topic={article.topic} height="h-52" />
-        </div>
-        <div className="absolute bottom-3 left-3 flex items-center gap-1.5">
-          {article.momentum_score >= 3 && (
-            <span className="rounded-full bg-rose-500/90 px-2 py-0.5 text-[10px] font-bold text-white">
-              🔥 {article.momentum_score}
-            </span>
-          )}
-          {article.topic && <TopicBadge topic={article.topic} />}
+        <div className={article.image_url ? 'hidden' : ''}>
+          <TopicTexture topic={article.topic} height="aspect-[16/10] w-full" />
         </div>
       </Link>
 
-      <div className="flex flex-1 flex-col p-4">
-        <div className="mb-2.5 flex items-center gap-1.5 text-xs text-gray-400">
-          <span className="font-semibold text-gray-700">{article.source.name}</span>
-          <span>·</span>
-          <TimeAgo date={article.published_at} />
-        </div>
-        <Link to={`/articles/${article.id}`} className="mb-2 text-base font-bold leading-snug text-gray-900 line-clamp-2 hover:text-brand-600 transition-colors">
-          {article.title}
-        </Link>
-        {article.summary && (
-          <p className="flex-1 text-sm text-gray-500 line-clamp-2 leading-relaxed">{article.summary}</p>
-        )}
-        <div className="mt-3 pt-3 border-t border-gray-50 flex items-center justify-between gap-2">
-          <DualTimestamp article={article} />
-          <a
-            href={article.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="shrink-0 text-[10px] text-gray-400 hover:text-brand-500 transition-colors"
-          >
-            original ↗
-          </a>
-        </div>
+      <TopicEyebrow topic={article.topic} momentum={article.momentum_score} />
+      <Link
+        to={`/articles/${article.id}`}
+        className="mt-1.5 font-serif text-xl font-semibold leading-tight text-ink line-clamp-3 transition-colors group-hover:text-brand-700"
+      >
+        {article.title}
+      </Link>
+      {article.summary && (
+        <p className="mt-2 font-serif text-[15px] leading-[1.55] text-ink-500 line-clamp-2">
+          {article.summary}
+        </p>
+      )}
+      <div className="mt-3 pt-3 border-t border-paper-200">
+        <SourceLine article={article} />
       </div>
-    </div>
+    </article>
   )
 }
 
-// ── Default card ──────────────────────────────────────────────────────────────
+// ── Default card (most cards in grid) ─────────────────────────────────────────
 function DefaultCard({ article }: { article: Article }) {
   return (
-    <div className="group flex flex-col overflow-hidden rounded-xl border border-gray-100 bg-white shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-200">
-      <Link to={`/articles/${article.id}`} className="block overflow-hidden">
+    <article className="group flex flex-col h-full">
+      <Link to={`/articles/${article.id}`} className="block overflow-hidden rounded-md mb-3">
         {article.image_url ? (
           <img
             src={article.image_url}
             alt={article.title}
-            className="h-40 w-full object-cover transition duration-500 group-hover:scale-105"
+            className="aspect-[4/3] w-full object-cover transition duration-500 group-hover:scale-[1.02]"
             loading="lazy"
             onError={(e) => {
               const img = e.currentTarget as HTMLImageElement
@@ -189,44 +203,48 @@ function DefaultCard({ article }: { article: Article }) {
             }}
           />
         ) : null}
-        <div className={`${article.image_url ? 'hidden' : ''}`}>
-          <TopicGradient topic={article.topic} height="h-40" />
+        <div className={article.image_url ? 'hidden' : ''}>
+          <TopicTexture topic={article.topic} height="aspect-[4/3] w-full" />
         </div>
       </Link>
-      <div className="flex flex-1 flex-col p-4">
-        <div className="mb-1.5 flex items-center gap-1.5 text-xs text-gray-400">
-          <span className="font-medium text-gray-600">{article.source.name}</span>
-          <span>·</span>
-          <TimeAgo date={article.published_at} />
-        </div>
-        <Link to={`/articles/${article.id}`} className="flex-1 text-sm font-bold leading-snug text-gray-900 line-clamp-3 hover:text-brand-600 transition-colors">
-          {article.title}
-        </Link>
-        <div className="mt-3 flex items-center justify-between gap-2">
-          <div className="flex items-center gap-1.5">
-            {article.momentum_score >= 3 && (
-              <span className="rounded-full bg-rose-100 px-2 py-0.5 text-[10px] font-bold text-rose-600">
-                🔥 {article.momentum_score}
-              </span>
-            )}
-            {article.topic && <TopicBadge topic={article.topic} />}
-          </div>
-          <a
-            href={article.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="ml-auto text-[10px] text-gray-400 hover:text-brand-500 transition-colors shrink-0"
-          >
-            ↗
-          </a>
-        </div>
+
+      <TopicEyebrow topic={article.topic} momentum={article.momentum_score} />
+      <Link
+        to={`/articles/${article.id}`}
+        className="mt-1.5 flex-1 font-serif text-[17px] font-semibold leading-snug text-ink line-clamp-3 transition-colors group-hover:text-brand-700"
+      >
+        {article.title}
+      </Link>
+      <div className="mt-3 pt-3 border-t border-paper-200">
+        <SourceLine article={article} />
       </div>
-    </div>
+    </article>
   )
 }
 
-export default function ArticleCard({ article, variant = 'default' }: { article: Article; variant?: Variant }) {
-  if (variant === 'hero')  return <HeroCard article={article} />
-  if (variant === 'large') return <LargeCard article={article} />
+// ── Text-list card (sidebar / digest list) ────────────────────────────────────
+function TextListCard({ article }: { article: Article }) {
+  return (
+    <article className="group py-5 first:pt-0 last:pb-0">
+      <TopicEyebrow topic={article.topic} momentum={article.momentum_score} />
+      <Link
+        to={`/articles/${article.id}`}
+        className="mt-1.5 block font-serif text-[18px] font-semibold leading-snug text-ink line-clamp-3 transition-colors group-hover:text-brand-700"
+      >
+        {article.title}
+      </Link>
+      <div className="mt-2.5">
+        <SourceLine article={article} />
+      </div>
+    </article>
+  )
+}
+
+export default function ArticleCard({
+  article, variant = 'default',
+}: { article: Article; variant?: Variant }) {
+  if (variant === 'hero')      return <HeroCard article={article} />
+  if (variant === 'large')     return <LargeCard article={article} />
+  if (variant === 'text-list') return <TextListCard article={article} />
   return <DefaultCard article={article} />
 }
