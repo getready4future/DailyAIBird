@@ -856,6 +856,26 @@ def cancel_pipeline_run(run_id: int):
     return {"message": f"Cancellation requested for run {run_id}", "run_id": run_id}
 
 
+@router.get("/pipeline/active-slugs", dependencies=[Depends(_check_token)])
+def get_active_slugs():
+    """Diagnostic — returns the in-memory active-slug set used to gate parallel runs."""
+    from app.ai import progress
+    return {
+        "active_slugs": sorted(_active_slugs),
+        "active_run_ids": progress.list_active_run_ids(),
+    }
+
+
+@router.post("/pipeline/clear-active-slugs", dependencies=[Depends(_check_token)])
+def clear_active_slugs():
+    """Force-clear the in-memory active-slug set. Use when a previous run died
+    without releasing its slot and trigger-scrape keeps returning 429."""
+    with _active_slugs_lock:
+        cleared = list(_active_slugs)
+        _active_slugs.clear()
+    return {"cleared": cleared}
+
+
 @router.post("/trigger-digest", dependencies=[Depends(_check_token)])
 def trigger_digest(db: Session = Depends(get_db)):
     from datetime import date

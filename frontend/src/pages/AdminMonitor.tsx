@@ -600,8 +600,17 @@ export default function AdminMonitor() {
       setAutoScroll(true)
       setTimeout(() => connect(newRunId, 0), 400)
     } catch (err: unknown) {
-      const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail
-      setError(msg ?? 'Pipeline başlatılamadı')
+      const e = err as { response?: { status?: number; data?: { detail?: string | object } }; message?: string }
+      const status = e?.response?.status
+      const detail = e?.response?.data?.detail
+      const detailStr = typeof detail === 'string' ? detail : detail ? JSON.stringify(detail) : null
+      const msg = detailStr
+        ?? (status ? `HTTP ${status} — ${e?.message ?? 'sunucu hatası'}` : null)
+        ?? e?.message
+        ?? 'Pipeline başlatılamadı'
+      setError(msg)
+      // eslint-disable-next-line no-console
+      console.error('trigger-scrape failed:', { status, detail, error: err })
     }
   }
 
