@@ -1259,6 +1259,46 @@ def reactivate_source(source_id: int, db: Session = Depends(get_db)):
     return {"id": src.id, "is_active": True}
 
 
+@router.post("/sources/sync-defaults", dependencies=[Depends(_check_token)])
+def sync_source_defaults(db: Session = Depends(get_db)):
+    """One-shot: align each source's is_active with sources_config.SOURCES defaults.
+
+    Use case: source_config.py adds new sources or flips an is_active default,
+    but the row already exists in DB with a stale is_active. The startup
+    _seed_sources() never overrides is_active (admin sovereignty), so this
+    endpoint provides an explicit, audit-able way to bulk-align.
+
+    Returns: { activated, deactivated, unchanged } with slug lists.
+    """
+    from app.scrapers.sources_config import SOURCES
+    from app.models.source import Source as _Source
+
+    cfg_map = {c["slug"]: bool(c.get("is_active", True)) for c in SOURCES}
+    rows = db.query(_Source).all()
+
+    activated, deactivated, unchanged = [], [], []
+    for row in rows:
+        target = cfg_map.get(row.slug)
+        if target is None:
+            continue  # legacy slug not in config — leave alone
+        if bool(row.is_active) == target:
+            unchanged.append(row.slug)
+            continue
+        row.is_active = target
+        if target:
+            row.consecutive_failures = 0
+            row.auto_disabled_at = None
+            activated.append(row.slug)
+        else:
+            deactivated.append(row.slug)
+    db.commit()
+    return {
+        "activated": sorted(activated),
+        "deactivated": sorted(deactivated),
+        "unchanged": sorted(unchanged),
+    }
+
+
 # ── Pipeline Config ───────────────────────────────────────────────────────────
 
 @router.get("/pipeline/config", dependencies=[Depends(_check_token)])
