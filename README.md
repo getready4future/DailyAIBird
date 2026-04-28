@@ -1,6 +1,6 @@
 # Daily AI Bird
 
-AI-curated daily news for developers and researchers. Fresh AI updates every morning, analyzed for quality, filtered for scams, and published only after human approval.
+AI-curated daily news for everyone interested in AI — not just developers and researchers, but also general readers who want to stay on top of what's happening in the AI world. Fresh AI updates every morning, summarized in accessible language, analyzed for quality, filtered for scams, and published only after human approval.
 
 ## How It Works
 
