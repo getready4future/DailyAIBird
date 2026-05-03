@@ -78,15 +78,22 @@ consumer_relevance_score:
   1 — Only specialists in a narrow subfield care
 
 confidence_score:
-  5 — Multiple named sources, official announcement, or peer-reviewed paper
-  4 — Single strong named source, clear and specific claims
-  3 — Credible single source, some ambiguity in details — can still explain clearly
-  2 — Mostly vague, secondhand, or speculative — hard to explain accurately
-  1 — Rumor, anonymous sources, no verifiable facts
+  Confidence measures whether the central claim can be VERIFIED BY A THIRD PARTY,
+  not whether the article reads cleanly. A polished press release with one self-serving
+  source is NOT high-confidence. Independence of source matters.
+  5 — Multiple named, independent sources OR peer-reviewed paper OR primary regulatory document
+  4 — Official announcement backed by an independently observable fact (working demo, public release, court filing)
+  3 — Credible single source with specific, falsifiable claims; some details ambiguous
+  2 — Mostly vague, secondhand, or speculative — claims rest on the claimant's word alone
+  1 — Rumor, anonymous sources, vaporware promises, or unverifiable assertions
 
-curiosity_score — how compelling is this for a curious everyday reader:
-  5 — "I have to share this immediately" — affects daily life, surprising twist, or truly novel
-  4 — Clearly interesting — most curious readers would want to read more
+curiosity_score — genuine novelty for a curious everyday reader (NOT raw hype):
+  Curiosity is "is this surprising and true," not "is this attention-grabbing." A well-written
+  press release about a known product is low curiosity even if it sounds exciting. A negative
+  but true finding (a model failing, a regulator rejecting a deal) can rate just as high as
+  a positive one. Curiosity does NOT correlate with sentiment.
+  5 — Genuinely novel and consequential — affects daily life or upends a prior assumption
+  4 — Clearly interesting — meaningful new information most curious readers would want
   3 — Interesting to some — a specific segment would click, not everyone
   2 — Niche appeal — most would scroll past
   1 — Only the most dedicated AI watchers care
@@ -347,12 +354,18 @@ Voice and style polish happen in a separate later pass; do not worry about prose
 ─── HARD FIDELITY RULES (violate any and the output is unusable) ─────────────
 • Do not introduce facts, numbers, names, dates, quotes, causes, or consequences not in the source.
 • Do not assert opinions in your own voice. Opinions belong to named sources in the article.
-• Match the epistemic temperature exactly:
+• Match the epistemic temperature EXACTLY. Hedges are not optional decoration:
     Source says "may reduce costs" → you write "may reduce costs" — never "reduces costs"
     Source says "reduced costs by 18%" → you write "reduced costs by 18%" — never soften it
+• HEDGE PRESERVATION: Before delivering, scan every claim sentence for an epistemic hedge in the
+  source (may, might, could, likely, possibly, suggests, appears, reportedly, allegedly, claims,
+  said it would, plans to, expects to). If the source hedges, you MUST hedge with the same word
+  family. Dropping a hedge is a fidelity violation, not a stylistic choice.
 • If a number appears in the source, keep its denominator and full context.
     Write "34% of the 400 newsrooms surveyed" — never just "34%"
-• If the source attributes a claim ("according to X"), preserve the attribution.
+• If the source attributes a claim ("according to X"), preserve the attribution. Never strip it.
+• ATTRIBUTION INTEGRITY: Do not invent who said something. If the source says "an engineer's
+  blog post," do not rewrite it as "researchers say." Match the named entity exactly.
 • If the source contradicts itself, preserve the contradiction.
 • Direct quotes may only be used if they appear verbatim in the source.
 
@@ -562,6 +575,14 @@ for everyday users — never vague phrases like 'significant development' or 'ma
 • one_liner: concrete and precise. "OpenAI cut GPT-4o pricing by 50%, making it cheaper than \
   most competitors" beats "OpenAI made a significant pricing announcement." \
   Every one_liner must answer both "what happened" and "why does it matter."
+• ONE-CLAIM RULE: each one_liner contains ONE verifiable claim, not two. \
+  "X happened" ✓ — "X happened, making them the cheapest on the market" ✗ unless the input \
+  article explicitly compares pricing. Do not stack a comparative or evaluative second clause.
+• GROUNDING RULE: every fact in a one_liner must be supportable by the matching article's \
+  summary in the input. Do not synthesise new facts, comparisons, or "industry firsts" that \
+  are not present in that article's summary. If the summary doesn't say it, you don't write it.
+• HEDGE PRESERVATION: if the article summary hedges (may, might, plans to, expects to), \
+  the one_liner hedges with the same word family. Never tighten "plans to release" into "released".
 • Omit any section with zero articles.
 • Do not fabricate stories not in the input. Only work with the articles provided.
 • Write for non-experts — explain jargon in context if it must appear.

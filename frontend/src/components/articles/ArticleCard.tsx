@@ -26,14 +26,37 @@ const TOPIC_LABELS: Record<string, string> = {
   agents: 'Agents',
 }
 
+const TOPIC_EMOJI: Record<string, string> = {
+  research: '🔬',
+  products: '🚀',
+  policy: '📋',
+  business: '💼',
+  safety: '🛡️',
+  open_source: '📦',
+  tools: '🔧',
+  agents: '🤖',
+}
+
+function TrendingBadge({ momentum }: { momentum: number }) {
+  if (!momentum || momentum < 3) return null
+  return (
+    <span
+      className="ml-2 text-accent-700"
+      title={`Covered by ${momentum} of our trusted sources — a signal of significance, not a duplicate.`}
+    >
+      · Trending across {momentum} sources
+    </span>
+  )
+}
+
 function TopicEyebrow({ topic, momentum }: { topic?: string | null; momentum?: number }) {
   const label = topic ? (TOPIC_LABELS[topic] ?? topic.replace('_', ' ')) : 'AI'
+  const emoji = topic ? TOPIC_EMOJI[topic] : undefined
   return (
     <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-brand-600">
+      {emoji && <span className="mr-1.5 not-italic" aria-hidden>{emoji}</span>}
       {label}
-      {momentum && momentum >= 3 && (
-        <span className="ml-2 text-accent-700">· {momentum} sources</span>
-      )}
+      <TrendingBadge momentum={momentum ?? 0} />
     </p>
   )
 }
@@ -112,9 +135,17 @@ function HeroCard({ article }: { article: Article }) {
       {/* Content (bottom) */}
       <div className="absolute bottom-0 left-0 right-0 p-6 sm:p-8">
         <p className="mb-3 font-mono text-[10px] uppercase tracking-[0.18em] text-brand-200">
+          {article.topic && TOPIC_EMOJI[article.topic] && (
+            <span className="mr-1.5" aria-hidden>{TOPIC_EMOJI[article.topic]}</span>
+          )}
           {article.topic ? (TOPIC_LABELS[article.topic] ?? article.topic) : 'AI'}
           {article.momentum_score >= 3 && (
-            <span className="ml-2 text-accent-400">· {article.momentum_score} sources</span>
+            <span
+              className="ml-2 text-accent-400"
+              title={`Covered by ${article.momentum_score} of our trusted sources — a signal of significance, not a duplicate.`}
+            >
+              · Trending across {article.momentum_score} sources
+            </span>
           )}
         </p>
         <h2 className="mb-3 font-serif text-2xl sm:text-3xl lg:text-[2.25rem] font-semibold leading-[1.1] tracking-tight text-paper">

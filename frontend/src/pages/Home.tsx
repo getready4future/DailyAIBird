@@ -7,6 +7,7 @@ import ArticleFilters from '../components/articles/ArticleFilters'
 import { topicLabel } from '../components/ui/TopicBadge'
 import { ArticleGridSkeleton } from '../components/ui/Skeleton'
 import NewsletterSignup from '../components/ui/NewsletterSignup'
+import DigestPromoBanner from '../components/digest/DigestPromoBanner'
 
 export default function Home() {
   const [params, setParams] = useSearchParams()
@@ -68,6 +69,9 @@ export default function Home() {
           )}
         </div>
       </header>
+
+      {/* Today's Digest promo — only shown on default feed (no topic filter, page 1) */}
+      {!topic && page === 1 && <DigestPromoBanner />}
 
       <ArticleFilters />
 

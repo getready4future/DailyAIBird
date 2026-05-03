@@ -1,5 +1,5 @@
 import { useSearchParams } from 'react-router-dom'
-import { topicLabel } from '../ui/TopicBadge'
+import { topicLabel, topicEmoji } from '../ui/TopicBadge'
 
 const TOPICS = ['research', 'products', 'policy', 'business', 'safety', 'open_source', 'tools', 'agents']
 
@@ -27,19 +27,23 @@ export default function ArticleFilters() {
     <div className="mb-8 border-b border-paper-200 pb-4">
       <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
         <span className="eyebrow shrink-0">Topics</span>
-        {TOPICS.map((t) => (
-          <button
-            key={t}
-            onClick={() => setTopic(t)}
-            className={`font-mono text-[11px] uppercase tracking-[0.14em] transition pb-px border-b ${
-              activeTopic === t
-                ? 'text-brand-700 border-brand-500'
-                : 'text-ink-500 border-transparent hover:text-ink hover:border-paper-300'
-            }`}
-          >
-            {topicLabel(t)}
-          </button>
-        ))}
+        {TOPICS.map((t) => {
+          const emoji = topicEmoji(t)
+          return (
+            <button
+              key={t}
+              onClick={() => setTopic(t)}
+              className={`font-mono text-[11px] uppercase tracking-[0.14em] transition pb-px border-b ${
+                activeTopic === t
+                  ? 'text-brand-700 border-brand-500'
+                  : 'text-ink-500 border-transparent hover:text-ink hover:border-paper-300'
+              }`}
+            >
+              {emoji && <span className="mr-1" aria-hidden>{emoji}</span>}
+              {topicLabel(t)}
+            </button>
+          )
+        })}
         {activeTopic && (
           <button
             onClick={() => setTopic('')}

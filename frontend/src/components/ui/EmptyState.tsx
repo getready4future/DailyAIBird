@@ -1,6 +1,6 @@
 export default function EmptyState({
-  message = 'Nothing here yet.',
-  hint,
+  message = "No stories here just yet.",
+  hint = "We refresh every six hours — pop back soon.",
 }: {
   message?: string
   hint?: string

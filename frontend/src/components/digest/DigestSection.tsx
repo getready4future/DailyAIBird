@@ -1,33 +1,42 @@
 import type { DigestSection as DigestSectionType } from '../../types'
-import TopicBadge from '../ui/TopicBadge'
+import { topicEmoji, topicLabel } from '../ui/TopicBadge'
 
 export default function DigestSection({ section }: { section: DigestSectionType }) {
+  const emoji = topicEmoji(section.topic)
   return (
-    <section className="mb-8">
-      <div className="mb-3 flex items-center gap-3">
-        <TopicBadge topic={section.topic} />
-        <h2 className="text-lg font-semibold text-gray-800">{section.heading}</h2>
+    <section className="mb-12">
+      <div className="mb-5 flex items-baseline gap-3">
+        <span className="eyebrow">
+          {emoji && <span className="mr-1.5" aria-hidden>{emoji}</span>}
+          {topicLabel(section.topic)}
+        </span>
+        <div className="flex-1 h-px bg-paper-200" />
       </div>
-      <ul className="space-y-3">
+      <h2 className="mb-5 font-serif text-2xl font-semibold leading-tight text-ink">
+        {section.heading}
+      </h2>
+      <ol className="space-y-5">
         {section.items.map((item, i) => (
-          <li key={i} className="flex gap-3 rounded-lg border border-gray-100 bg-gray-50 p-4">
-            <span className="mt-0.5 flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full bg-brand-500 text-xs font-bold text-white">
-              {i + 1}
+          <li key={i} className="flex gap-4">
+            <span className="mt-1 shrink-0 font-mono text-[12px] tabular-nums text-ink-400 w-5">
+              {String(i + 1).padStart(2, '0')}
             </span>
-            <div>
+            <div className="flex-1 min-w-0">
               <a
                 href={item.url}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="font-medium text-gray-900 hover:text-brand-600"
+                className="font-serif text-[18px] font-semibold leading-snug text-ink hover:text-brand-700 transition-colors underline-grow"
               >
                 {item.title}
               </a>
-              <p className="mt-1 text-sm text-gray-600">{item.one_liner}</p>
+              <p className="mt-1.5 font-serif text-[15px] leading-[1.55] text-ink-500">
+                {item.one_liner}
+              </p>
             </div>
           </li>
         ))}
-      </ul>
+      </ol>
     </section>
   )
 }

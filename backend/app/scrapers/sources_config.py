@@ -262,7 +262,9 @@ SOURCES: list[dict] = [
         ),
         "scraper_type": "arxiv",
         "category": "research",
-        "is_active": False,
+        # Activated to give researchers and AI-literate readers a path to
+        # primary research, not just press releases about it.
+        "is_active": True,
         "scrape_config": {},
     },
     {
@@ -276,7 +278,7 @@ SOURCES: list[dict] = [
         ),
         "scraper_type": "arxiv",
         "category": "research",
-        "is_active": False,
+        "is_active": True,
         "scrape_config": {},
     },
     # ── Social / Community ────────────────────────────────────────────────────

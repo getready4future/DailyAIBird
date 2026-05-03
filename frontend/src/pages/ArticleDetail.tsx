@@ -5,6 +5,8 @@ import { useArticle } from '../hooks/useArticles'
 import Spinner from '../components/ui/Spinner'
 import AIDisclosure from '../components/ui/AIDisclosure'
 import NewsletterSignup from '../components/ui/NewsletterSignup'
+import ShareButtons from '../components/articles/ShareButtons'
+import { topicEmoji } from '../components/ui/TopicBadge'
 
 const TOPIC_LABELS: Record<string, string> = {
   research: 'Research',
@@ -116,11 +118,19 @@ export default function ArticleDetail() {
 
       {/* Topic eyebrow + reading time */}
       <p className="mb-3 font-mono text-[11px] uppercase tracking-[0.18em] text-brand-600">
+        {article.topic && topicEmoji(article.topic) && (
+          <span className="mr-1.5" aria-hidden>{topicEmoji(article.topic)}</span>
+        )}
         {topicLabel ?? 'AI'}
         <span className="ml-2 text-ink-400">· {minutes} min read</span>
         {article.is_featured && <span className="ml-2 text-accent-700">· Featured</span>}
         {article.momentum_score >= 3 && (
-          <span className="ml-2 text-accent-700">· {article.momentum_score} sources</span>
+          <span
+            className="ml-2 text-accent-700"
+            title={`Covered by ${article.momentum_score} of our trusted sources — a signal of significance, not a duplicate.`}
+          >
+            · Trending across {article.momentum_score} sources
+          </span>
         )}
       </p>
 
@@ -213,8 +223,39 @@ export default function ArticleDetail() {
         </div>
       )}
 
+      {/* Why this matters — plain-English context for general readers */}
+      {(article.is_featured || article.momentum_score >= 3 || article.impact_score) && (
+        <aside
+          className="mt-10 rounded-md border-l-4 border-brand-500 bg-brand-50/40 px-5 py-4"
+          aria-label="Why this matters"
+        >
+          <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-brand-700 mb-1.5">
+            Why we surfaced this
+          </p>
+          <p className="font-serif text-[15px] leading-[1.6] text-ink">
+            {(() => {
+              const reasons: string[] = []
+              if (article.is_featured) reasons.push("our editors flagged it as the day's most consequential story")
+              if (article.momentum_score >= 3) reasons.push(`${article.momentum_score} of our trusted sources covered it`)
+              if (article.impact_score && article.impact_score >= 0.7) reasons.push('it has near-term consequences for many readers')
+              if (reasons.length === 0) reasons.push('it cleared our quality gate for verifiable, novel reporting')
+              return `We featured this because ${reasons.join(' and ')}.`
+            })()}
+          </p>
+        </aside>
+      )}
+
+      {/* Share buttons */}
+      <div className="mt-8">
+        <ShareButtons
+          url={canonical}
+          title={article.title}
+          source={article.source.name}
+        />
+      </div>
+
       {/* AI disclosure — AFTER body, not before */}
-      <div className="mt-10">
+      <div className="mt-8">
         <AIDisclosure />
       </div>
 
